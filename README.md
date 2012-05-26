@@ -4,8 +4,7 @@
 
 ### Navigation
  - [About](#about)
- - [Example](#example)
- - [Quick Guide](#quickguide)
+ - [Examples](#examples)
 
 
 ### About
@@ -14,7 +13,9 @@ ColorD is open-source, small library written in [D Programming Language](http://
 helps you add color to your console output. Work on both Windows and Linux operating systems.
 
 
-### Example
+### Examples
+
+#### Adding colors
 
 ```D
 import std.stdio, colord;
@@ -35,7 +36,6 @@ void main()
 }
 ```
 
-### Quick Guide
 
 #### Resetting foreground color
 
