@@ -1,10 +1,5 @@
 ## ColorD
 
-### Navigation
- - [License](#license)
- - [About](#about)
- - [Examples](#examples)
-
 ### License
 
  This library is licensed under public domain.
