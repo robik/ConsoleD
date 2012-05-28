@@ -7,7 +7,6 @@ version(Windows)
     ///
     enum Color : ushort
     {
-        Black       = 0,
         DarkBlue    = 1,
         DarkGreen   = 2,
         DarkAzure   = 3,
@@ -16,13 +15,15 @@ version(Windows)
         DarkYellow  = 6,
         Silver      = 7,
         Gray        = 8,
-        
+     
+        Black       = 0,   
         Blue        = 9,
         Green       = 10,
         Aqua        = 11,
         Red         = 12,
-        Yellow      = 13,
-        White       = 14,
+        Pink        = 13,
+        Yellow      = 14,
+        White       = 15,
         
         Default     = 256
     }
@@ -45,10 +46,7 @@ version(Windows)
     {
         extern(C) HANDLE hConsole = null;
         
-        Color defFg, defBg;
-        
-        Color fg;
-        Color bg;
+        Color fg, bg, defFg, defBg;
     }
     
     
@@ -65,7 +63,6 @@ version(Windows)
     {
         return fg;
     }
-    
     
     /**
      * Current console background color
@@ -108,7 +105,6 @@ version(Windows)
         }
         
         SetConsoleTextAttribute(hConsole, buildColor(fg, color));
-        
         bg = color;
     }
     
@@ -117,7 +113,8 @@ else version(Posix)
 {
     import std.stdio;
     
-    /// 
+    extern(C) int isatty(int);
+    
     enum Color : ushort
     {
         Black   = 30,
@@ -138,6 +135,10 @@ else version(Posix)
         Color bg = Color.Default;
     }
     
+    private bool isRedirected()
+    {
+        return isatty( fileno(stdout.getFP) ) == 1;
+    }
     
     /**
      * Sets console foreground color
@@ -147,11 +148,20 @@ else version(Posix)
      */
     void setConsoleForeground(Color color)
     {
+        if(!isRedirected()) {
+            return;
+        }
+        
         if(color == Color.Default)
         {
             writef("\033[0m");
             fg = Color.Default;
-            setConsoleBackgroundColor(bg);
+            
+            // Because all colors were reseted, bring back BG color
+            if(bg != Color.Default)
+            {
+                setConsoleBackgroundColor(bg);
+            }
         }
         else
         {
@@ -159,7 +169,6 @@ else version(Posix)
             fg = color;
         }
     }
-    
     
     /**
      * Sets console background color
@@ -169,11 +178,20 @@ else version(Posix)
      */
     void setConsoleBackground(Color color)
     {
+        if(!isRedirected()) {
+            return;
+        }
+        
         if(color == Color.Default)
         {
             writef("\033[0m");
             bg = Color.Default;
-            setConsoleFontColor(fg);
+
+            // Because all colors were reseted, bring back FG color
+            if(fg != Color.Default)
+            {
+                setConsoleForeground(fg);
+            }
         }
         else
         {
