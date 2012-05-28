@@ -34,16 +34,18 @@ version(Windows)
         // Get current colors
         CONSOLE_SCREEN_BUFFER_INFO info;
         GetConsoleScreenBufferInfo( hConsole, &info );
-        bg = cast(Color)(info.wAttributes & (0b11110000));
-        fg = cast(Color)(info.wAttributes & (0b00001111));
+        defBg = cast(Color)(info.wAttributes & (0b11110000));
+        defFg = cast(Color)(info.wAttributes & (0b00001111));
         
-        import std.stdio;
-        writeln(fg, bg);
+        fg = defFg;
+        bg = defBg;
     }
     
     package static
     {
         extern(C) HANDLE hConsole = null;
+        
+        Color defFg, defBg;
         
         Color fg;
         Color bg;
@@ -82,11 +84,12 @@ version(Windows)
      */
     void setConsoleForeground(Color color)
     {
-        if(color != Color.Default)
+        if(color == Color.Default)
         {
-            SetConsoleTextAttribute(hConsole, buildColor(cast(Color)16, bg));
+            color = defFg;
         }
         
+        SetConsoleTextAttribute(hConsole, buildColor(color, bg));
         fg = color;
     }
     
@@ -99,10 +102,12 @@ version(Windows)
      */
     void setConsoleBackground(Color color)
     {   
-        if(color != Color.Default)
+        if(color == Color.Default)
         {
-            SetConsoleTextAttribute(hConsole, buildColor(fg, color));
+            color = defBg;
         }
+        
+        SetConsoleTextAttribute(hConsole, buildColor(fg, color));
         
         bg = color;
     }
