@@ -1,11 +1,8 @@
 ## ColorD
 
-*Because colors are awesome.*
+### License
 
-### Navigation
- - [About](#about)
- - [Examples](#examples)
-
+ This library is licensed under public domain.
 
 ### About
 
