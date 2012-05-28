@@ -160,7 +160,7 @@ else version(Posix)
             // Because all colors were reseted, bring back BG color
             if(bg != Color.Default)
             {
-                setConsoleBackgroundColor(bg);
+                setConsoleBackground(bg);
             }
         }
         else
