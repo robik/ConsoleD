@@ -134,6 +134,8 @@ else version(Posix)
     {   
         Color fg = Color.Default;
         Color bg = Color.Default;
+        
+        bool isHighlighted;
     }
     
     private bool isRedirected()
@@ -155,7 +157,7 @@ else version(Posix)
         
         if(color == Color.Default)
         {
-            writef("\033[0m");
+            writef("\033[%dm", isHighlighted ? 1 : 0);
             fg = Color.Default;
             
             // Because all colors were reseted, bring back BG color
@@ -166,7 +168,7 @@ else version(Posix)
         }
         else
         {
-            writef("\033[0;%dm", cast(int)color);
+            writef("\033[%d;%dm", isHighlighted ? 1 : 0, cast(int)color);
             fg = color;
         }
     }
@@ -185,7 +187,7 @@ else version(Posix)
         
         if(color == Color.Default)
         {
-            writef("\033[0m");
+            writef("\033[%dm", isHighlighted ? 1 : 0);
             bg = Color.Default;
 
             // Because all colors were reseted, bring back FG color
@@ -196,11 +198,17 @@ else version(Posix)
         }
         else
         {
-            writef("\033[0;%dm", cast(int)color + 10);
+            writef("\033[%d;%dm", isHighlighted ? 1 : 0, cast(int)color + 10);
             bg = color;
         }
     }
     
+    void setConsoleHighlight(bool enable)
+    {
+		isHighlighted = enable;
+		setConsoleForeground(fg);
+		setConsoleBackground(bg);
+	}
     
     /**
      * Current console background color
