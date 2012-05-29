@@ -38,8 +38,8 @@ version(Windows)
         defBg = cast(Color)(info.wAttributes & (0b11110000));
         defFg = cast(Color)(info.wAttributes & (0b00001111));
         
-        fg = defFg;
-        bg = defBg;
+        fg = Color.Default;
+        bg = Color.Default;
     }
     
     package static
@@ -52,6 +52,16 @@ version(Windows)
     
     private ushort buildColor(Color fg, Color bg)
     {
+        if(fg == Color.Default)
+        {
+            fg = defFg;
+        }
+        
+        if(bg == Color.Default)
+        {
+            bg = defBg;
+        }
+            
         return cast(ushort)(fg | bg << 4);
     }
     
@@ -81,12 +91,8 @@ version(Windows)
      */
     void setConsoleForeground(Color color)
     {
-        if(color == Color.Default)
-        {
-            color = defFg;
-        }
-        
         SetConsoleTextAttribute(hConsole, buildColor(color, bg));
+            
         fg = color;
     }
     
@@ -99,11 +105,6 @@ version(Windows)
      */
     void setConsoleBackground(Color color)
     {   
-        if(color == Color.Default)
-        {
-            color = defBg;
-        }
-        
         SetConsoleTextAttribute(hConsole, buildColor(fg, color));
         bg = color;
     }
