@@ -2,28 +2,28 @@ module colord;
 
 version(Windows)
 { 
-    import std.c.windows.windows;
+    import std.c.windows.windows, std.algorithm;
     
     ///
     enum Color : ushort
     {
-        DarkBlue    = 1,
-        DarkGreen   = 2,
-        DarkAzure   = 3,
-        DarkRed     = 4,
-        Purple      = 5,
-        DarkYellow  = 6,
-        Silver      = 7,
-        Gray        = 8,
-     
-        Black       = 0,   
+        Black   = 0,
+        Blue    = 1,
+        Green   = 2,
+        Azure   = 3,
+        Red     = 4,
+        Purple  = 5,
+        Yellow  = 6,
+        Silver  = 7,
+        
+        /*Gray      = 8,   
         Blue        = 9,
         Green       = 10,
         Aqua        = 11,
         Red         = 12,
         Pink        = 13,
         Yellow      = 14,
-        White       = 15,
+        White       = 15,*/
         
         Default     = 256
     }
@@ -47,19 +47,27 @@ version(Windows)
         extern(C) HANDLE hConsole = null;
         
         Color fg, bg, defFg, defBg;
+        bool isHighlighted;
     }
     
     
     private ushort buildColor(Color fg, Color bg)
     {
-        if(fg == Color.Default)
-        {
+        if(fg == Color.Default) {
             fg = defFg;
         }
         
-        if(bg == Color.Default)
-        {
+        if(bg == Color.Default) {
             bg = defBg;
+        }
+        
+        if(isHighlighted)
+        {
+            if(fg != Color.Default) {
+                fg = cast(Color)( min(fg + 8, 15) );
+            } else {
+                fg = cast(Color)( min(defFg + 8, 15) );
+            }
         }
             
         return cast(ushort)(fg | bg << 4);
@@ -82,6 +90,23 @@ version(Windows)
         return bg;
     }
     
+    /**
+     * Enables/disables console font highlight
+     */
+    void setFontHighlight(bool enable)
+    {
+        isHighlighted = enable;
+        setConsoleForeground(fg);
+        setConsoleBackground(bg);
+    }
+    
+    /**
+     * Returns: Is font highlighted?
+     */
+    bool isFontHighlighted()
+    {
+        return isHighlighted;
+    }
     
     /**
      * Sets console foreground color
@@ -203,12 +228,23 @@ else version(Posix)
         }
     }
     
-    void setConsoleHighlight(bool enable)
+    /**
+     * Enables/disables console font highlight
+     */
+    void setFontHighlight(bool enable)
     {
-		isHighlighted = enable;
-		setConsoleForeground(fg);
-		setConsoleBackground(bg);
-	}
+        isHighlighted = enable;
+        setConsoleForeground(fg);
+        setConsoleBackground(bg);
+    }
+    
+    /**
+     * Returns: Is font highlighted?
+     */
+    bool isFontHighlighted()
+    {
+        return isHighlighted;
+    }
     
     /**
      * Current console background color

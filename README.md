@@ -56,3 +56,23 @@ void main()
     auto currentBg = getConsoleBackground();
 }
 ```
+
+#### Highlighting font
+
+There's major difference between Window's Posix's highlights:
+
+ - On Windows enabling Highlight makes font color brighter:
+ 
+ ![Windows](http://i.imgur.com/Y9dey.png)
+ 
+ - On Posix enabling Highlight makes font both brighter and bold:
+ 
+ ![Posix](http://i.imgur.com/xzwq0.png)
+ 
+ 
+```D
+writeln("Normal");
+setFontHighlight(true);
+writeln("Highlighted");
+setFontHighlight(false);
+```
