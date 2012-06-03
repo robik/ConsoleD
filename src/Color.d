@@ -2,7 +2,7 @@ module colord;
 
 version(Windows)
 { 
-    import std.c.windows.windows, std.algorithm;
+    import std.c.windows.windows, std.algorithm, std.stdio;
     
     ///
     enum Color : ushort
@@ -111,13 +111,15 @@ version(Windows)
     /**
      * Sets console foreground color
      *
+     * Flushes stdout 
+     *
      * Params:
      *  color = Color to set
      */
     void setConsoleForeground(Color color)
     {
+        stdout.flush();
         SetConsoleTextAttribute(hConsole, buildColor(color, bg));
-            
         fg = color;
     }
     
@@ -125,11 +127,14 @@ version(Windows)
     /**
      * Sets console background color
      *
+     * Flushes stdout 
+     *
      * Params:
      *  color = Color to set
      */
     void setConsoleBackground(Color color)
     {   
+        stdout.flush();
         SetConsoleTextAttribute(hConsole, buildColor(fg, color));
         bg = color;
     }
