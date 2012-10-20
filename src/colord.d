@@ -1,3 +1,18 @@
+/**
+ * ColorD
+ * 
+ * Provides simple API for coloring text in terminal.
+ * On Windows OS it uses SetConsoleAttribute function family,
+ * On POSIX systems it uses ANSI codes.
+ * 
+ * Examples:
+ * ------
+ * import std.stdio, colord;
+ * ------
+ * 
+ * License: <a href="http://opensource.org/licenses/mit-license.php">MIT License</a>
+ * Autor: <a href="http://github.com/robik">Robert 'Robik' Pasiński</a>
+ */
 module colord;
 
 version(Windows)
@@ -36,7 +51,7 @@ version(Windows)
         // Get current colors
         CONSOLE_SCREEN_BUFFER_INFO info;
         GetConsoleScreenBufferInfo( hConsole, &info );
-        defBg = cast(Color)(info.wAttributes & (0b11110000));
+        defBg = cast(Color)((info.wAttributes & (0b11110000)) >> 4);
         defFg = cast(Color)(info.wAttributes & (0b00001111));
         
         fg = Color.Default;
