@@ -2,7 +2,7 @@ module colord;
 
 version(Windows)
 { 
-    import std.c.windows.windows, std.algorithm, std.stdio;
+    import core.sys.windows.windows, std.algorithm, std.stdio;
     
     ///
     enum Color : ushort
@@ -28,7 +28,7 @@ version(Windows)
         Default     = 256
     }
     
-    static this()
+    shared static this()
     {
         hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
         
@@ -42,9 +42,9 @@ version(Windows)
         bg = Color.Default;
     }
     
-    package static
+    package static __gshared
     {
-        extern(C) HANDLE hConsole = null;
+        HANDLE hConsole = null;
         
         Color fg, bg, defFg, defBg;
         bool isHighlighted;
@@ -142,9 +142,7 @@ version(Windows)
 }
 else version(Posix)
 {
-    import std.stdio;
-    
-    extern(C) int isatty(int);
+    import std.stdio, core.sys.posix.unistd;    
     
     enum Color : ushort
     {
