@@ -114,7 +114,7 @@ version(Windows)
 }
 else version(Posix)
 {
-    import std.stdio, core.sys.posix.unistd;    
+    import std.stdio, core.sys.posix.unistd;
     
     enum Color
     {
@@ -138,7 +138,7 @@ else version(Posix)
         
         Bright       = 64,
         
-        Default = 0
+        Default      = 39
     }
     
     __gshared
@@ -164,20 +164,12 @@ else version(Posix)
             return;
         }
         
-        if(color == Color.Default)
-        {
-            writef("\033[%dm", 39);
-            fg = Color.Default;
-        }
-        else
-        {
-            fg = color;
-            writef("\033[%d;%d;%dm", 
-                color & Color.Bright ? 1 : 0, 
-                cast(int)(fg & ~ Color.Bright),
-                cast(int)(bg & ~ Color.Bright) + 10
-            );
-        }
+        fg = color;
+        writef("\033[%d;%d;%dm", 
+            color & Color.Bright ? 1 : 0, 
+            cast(int)(fg & ~Color.Bright),
+            cast(int)(bg & ~Color.Bright) + 10
+        );        
     }
     
     /**
@@ -192,20 +184,12 @@ else version(Posix)
             return;
         }
         
-        if(color == Color.Default)
-        {
-            writef("\033[%dm", 49);
-            bg = Color.Default;
-        }
-        else
-        {
-            bg = color;
-            writef("\033[%d;%d;%dm", 
-                color & Color.Bright ? 1 : 0, 
-                cast(int)(fg & ~ Color.Bright),
-                cast(int)(bg & ~ Color.Bright) + 10
-            );
-        }
+        bg = color;
+        writef("\033[%d;%d;%dm", 
+            color & Color.Bright ? 1 : 0, 
+            cast(int)(fg & ~Color.Bright),
+            cast(int)(bg & ~Color.Bright) + 10
+        );        
     }   
     
     /**
