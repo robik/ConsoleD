@@ -17,8 +17,8 @@
  * }
  * ------
  * 
- * License: <a href="http://opensource.org/licenses/mit-license.php">MIT License</a>
- * Autor: <a href="http://github.com/robik">Robert 'Robik' Pasiński</a>
+ * License: <a href="http://www.boost.org/LICENSE_1_0.txt">Boost License</a>
+ * Authors: <a href="http://github.com/robik">Robert 'Robik' Pasiński</a>
  */
 module colord;
 
@@ -88,7 +88,7 @@ version(Windows)
         bg = Color.Default;
     }
     
-    package __gshared
+    private __gshared
     {
         HANDLE hConsole = null;
         
@@ -206,13 +206,13 @@ else version(Posix)
         Default      = 256  /// Default color
     }
     
-    static this()
+    shared static this()
     {
         stream = stdout;
     }
     
     
-    __gshared
+    private __gshared
     {   
         Color fg = Color.Default;
         Color bg = Color.Default;
