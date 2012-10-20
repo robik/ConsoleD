@@ -43,7 +43,7 @@ version(Windows)
         bg = Color.Default;
     }
     
-    package static __gshared
+    package __gshared
     {
         HANDLE hConsole = null;
         
@@ -111,7 +111,6 @@ version(Windows)
         SetConsoleTextAttribute(hConsole, buildColor(fg, color));
         bg = color;
     }
-    
 }
 else version(Posix)
 {
@@ -142,7 +141,7 @@ else version(Posix)
         Default = 0
     }
     
-    static
+    __gshared
     {   
         Color fg = Color.Default;
         Color bg = Color.Default;
