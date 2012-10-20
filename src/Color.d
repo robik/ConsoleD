@@ -14,7 +14,7 @@ version(Windows)
         Red     = 4,
         Purple  = 5,
         Yellow  = 6,
-        Silver  = 7,
+        White   = 7,
         
         /*Gray      = 8,   
         Blue        = 9,
