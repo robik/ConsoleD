@@ -169,11 +169,6 @@ else version(Posix)
         {
             writef("\033[%dm", 39);
             fg = Color.Default;
-            
-            // Because all colors were reseted, bring back BG color
-            if(bg != Color.Default) {
-                setConsoleBackground(bg);
-            }
         }
         else
         {
@@ -202,11 +197,6 @@ else version(Posix)
         {
             writef("\033[%dm", 49);
             bg = Color.Default;
-
-            // Because all colors were reseted, bring back FG color
-            if(fg != Color.Default) {
-                setConsoleForeground(fg);
-            }
         }
         else
         {
