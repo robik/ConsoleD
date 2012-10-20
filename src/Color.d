@@ -7,24 +7,25 @@ version(Windows)
     ///
     enum Color : ushort
     {
-        Black   = 0,
-        Blue    = 1,
-        Green   = 2,
-        Azure   = 3,
-        Red     = 4,
-        Purple  = 5,
-        Yellow  = 6,
-        White   = 7,
+        Black        = 0,
+        Blue         = 1,
+        Green        = 2,
+        Cyan         = 3,
+        Red          = 4,
+        Magenta      = 5,
+        Yellow       = 6,
+        LightGray    = 7,
         
-        /*Gray      = 8,   
-        Blue        = 9,
-        Green       = 10,
-        Aqua        = 11,
-        Red         = 12,
-        Pink        = 13,
-        Yellow      = 14,
-        White       = 15,*/
+        Gray         = 8,   
+        LightBlue    = 9,
+        LightGreen   = 10,
+        LightCyan    = 11,
+        LightRed     = 12,
+        LightMagenta = 13,
+        LightYellow  = 14,
+        White        = 15,
         
+        Bright       = 8,
         Default     = 256
     }
     
@@ -47,7 +48,6 @@ version(Windows)
         HANDLE hConsole = null;
         
         Color fg, bg, defFg, defBg;
-        bool isHighlighted;
     }
     
     
@@ -59,15 +59,6 @@ version(Windows)
         
         if(bg == Color.Default) {
             bg = defBg;
-        }
-        
-        if(isHighlighted)
-        {
-            if(fg != Color.Default) {
-                fg = cast(Color)( min(fg + 8, 15) );
-            } else {
-                fg = cast(Color)( min(defFg + 8, 15) );
-            }
         }
             
         return cast(ushort)(fg | bg << 4);
@@ -88,24 +79,6 @@ version(Windows)
     Color getConsoleBackground()
     {
         return bg;
-    }
-    
-    /**
-     * Enables/disables console font highlight
-     */
-    void setFontHighlight(bool enable)
-    {
-        isHighlighted = enable;
-        setConsoleForeground(fg);
-        setConsoleBackground(bg);
-    }
-    
-    /**
-     * Returns: Is font highlighted?
-     */
-    bool isFontHighlighted()
-    {
-        return isHighlighted;
     }
     
     /**
@@ -144,16 +117,27 @@ else version(Posix)
 {
     import std.stdio, core.sys.posix.unistd;    
     
-    enum Color : ushort
+    enum Color
     {
-        Black   = 30,
-        Red     = 31,
-        Green   = 32,
-        Orange  = 33,
-        Blue    = 34,
-        Pink    = 35,
-        Aqua    = 36,
-        White   = 37,
+        Black        = 30,
+        Red          = 31,
+        Green        = 32,
+        Yellow       = 33,
+        Blue         = 34,
+        Magenta      = 35,
+        Cyan         = 36,
+        LightGray    = 37,
+        
+        Gray         = 94,
+        LightRed     = 95,
+        LightGreen   = 96,
+        LightYellow  = 97,
+        LightBlue    = 98,
+        LightMagenta = 99,
+        LightCyan    = 100,
+        White        = 101,
+        
+        Bright       = 64,
         
         Default = 0
     }
@@ -162,13 +146,11 @@ else version(Posix)
     {   
         Color fg = Color.Default;
         Color bg = Color.Default;
-        
-        bool isHighlighted;
     }
     
     private bool isRedirected()
     {
-        return isatty( fileno(stdout.getFP) ) == 1;
+        return isatty( fileno(stdout.getFP) ) != 1;
     }
     
     /**
@@ -179,25 +161,28 @@ else version(Posix)
      */
     void setConsoleForeground(Color color)
     {
-        if(!isRedirected()) {
+        if(isRedirected()) {
             return;
         }
         
         if(color == Color.Default)
         {
-            writef("\033[%dm", isHighlighted ? 1 : 0);
+            writef("\033[%dm", 39);
             fg = Color.Default;
             
             // Because all colors were reseted, bring back BG color
-            if(bg != Color.Default)
-            {
+            if(bg != Color.Default) {
                 setConsoleBackground(bg);
             }
         }
         else
         {
-            writef("\033[%d;%dm", isHighlighted ? 1 : 0, cast(int)color);
             fg = color;
+            writef("\033[%d;%d;%dm", 
+                color & Color.Bright ? 1 : 0, 
+                cast(int)(fg & ~ Color.Bright),
+                cast(int)(bg & ~ Color.Bright) + 10
+            );
         }
     }
     
@@ -209,45 +194,30 @@ else version(Posix)
      */
     void setConsoleBackground(Color color)
     {
-        if(!isRedirected()) {
+        if(isRedirected()) {
             return;
         }
         
         if(color == Color.Default)
         {
-            writef("\033[%dm", isHighlighted ? 1 : 0);
+            writef("\033[%dm", 49);
             bg = Color.Default;
 
             // Because all colors were reseted, bring back FG color
-            if(fg != Color.Default)
-            {
+            if(fg != Color.Default) {
                 setConsoleForeground(fg);
             }
         }
         else
         {
-            writef("\033[%d;%dm", isHighlighted ? 1 : 0, cast(int)color + 10);
             bg = color;
+            writef("\033[%d;%d;%dm", 
+                color & Color.Bright ? 1 : 0, 
+                cast(int)(fg & ~ Color.Bright),
+                cast(int)(bg & ~ Color.Bright) + 10
+            );
         }
-    }
-    
-    /**
-     * Enables/disables console font highlight
-     */
-    void setFontHighlight(bool enable)
-    {
-        isHighlighted = enable;
-        setConsoleForeground(fg);
-        setConsoleBackground(bg);
-    }
-    
-    /**
-     * Returns: Is font highlighted?
-     */
-    bool isFontHighlighted()
-    {
-        return isHighlighted;
-    }
+    }   
     
     /**
      * Current console background color
@@ -265,3 +235,4 @@ else version(Posix)
         return bg;
     }
 }
+
