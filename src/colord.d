@@ -8,6 +8,13 @@
  * Examples:
  * ------
  * import std.stdio, colord;
+ * void main()
+ * {
+ *     setConsoleForeground(Color.Red);
+ *     setConsoleBackground(Color.Blue);
+ *     writeln("Red text with blue background");
+ *     resetConsoleColors();
+ * }
  * ------
  * 
  * License: <a href="http://opensource.org/licenses/mit-license.php">MIT License</a>
@@ -15,38 +22,61 @@
  */
 module colord;
 
+
+/// Console output stream
+enum ConsoleOutputStream
+{
+    Stdout,
+    Stderr
+};
+
 version(Windows)
 { 
     import core.sys.windows.windows, std.algorithm, std.stdio;
     
     ///
     enum Color : ushort
-    {
-        Black        = 0,
-        Blue         = 1,
-        Green        = 2,
-        Cyan         = 3,
-        Red          = 4,
-        Magenta      = 5,
-        Yellow       = 6,
-        LightGray    = 7,
+    {        
+        Black        = 0, /// The black color.
+        Blue         = 1, /// The blue color.
+        Green        = 2, /// The green color.
+        Cyan         = 3, /// The cyan color. (blue-green)
+        Red          = 4, /// The red color.
+        Magenta      = 5, /// The magenta color. (dark pink like)
+        Yellow       = 6, /// The yellow color.
+        LightGray    = 7, /// The light gray color. (silver)
         
-        Gray         = 8,   
-        LightBlue    = 9,
-        LightGreen   = 10,
-        LightCyan    = 11,
-        LightRed     = 12,
-        LightMagenta = 13,
-        LightYellow  = 14,
-        White        = 15,
+        Gray         = 8,  /// The gray color.
+        LightBlue    = 9,  /// The light blue color.
+        LightGreen   = 10, /// The light green color.
+        LightCyan    = 11, /// The light cyan color.(light blue-green)
+        LightRed     = 12, /// The light red color.
+        LightMagenta = 13, /// The light magenta color. (pink)
+        LightYellow  = 14, /// The light yellow color.
+        White        = 15, /// The white color.
         
-        Bright       = 8,
-        Default     = 256
+        Bright       = 8,  /// Bright flag. Use with dark colors to make them light equivalents.
+        Default      = 256 /// Default color.
     }
     
     shared static this()
     {
-        hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
+        loadDefaultColors(ConsoleOutputStream.Stdout);
+    }
+    
+    private void loadDefaultColors(ConsoleOutputStream cos)
+    {
+        uint handle;
+        
+        if(cos == ConsoleOutputStream.Stdout) {
+            handle = STD_OUTPUT_HANDLE;
+        } else if(cos == ConsoleOutputStream.Stderr) {
+            handle = STD_ERROR_HANDLE;
+        } else {
+            assert(0, "Invalid consone output stream specified");
+        }
+        
+        hConsole = GetStdHandle(handle);
         
         // Get current colors
         CONSOLE_SCREEN_BUFFER_INFO info;
@@ -82,6 +112,9 @@ version(Windows)
     
     /**
      * Current console font color
+     * 
+     * Returns:
+     *  Current foreground color set
      */
     Color getConsoleForeground()
     {
@@ -90,6 +123,9 @@ version(Windows)
     
     /**
      * Current console background color
+     * 
+     * Returns:
+     *  Current background color set
      */
     Color getConsoleBackground()
     {
@@ -99,10 +135,10 @@ version(Windows)
     /**
      * Sets console foreground color
      *
-     * Flushes stdout 
+     * Flushes stdout.
      *
      * Params:
-     *  color = Color to set
+     *  color = Foreground color to set
      */
     void setConsoleForeground(Color color)
     {
@@ -115,10 +151,10 @@ version(Windows)
     /**
      * Sets console background color
      *
-     * Flushes stdout 
+     * Flushes stdout.
      *
      * Params:
-     *  color = Color to set
+     *  color = Background color to set
      */
     void setConsoleBackground(Color color)
     {   
@@ -126,52 +162,73 @@ version(Windows)
         SetConsoleTextAttribute(hConsole, buildColor(fg, color));
         bg = color;
     }
+    
+    /**
+     * Sets new console output stream
+     * 
+     * This function sets default colors 
+     * that are used when function is called.
+     * 
+     * Params:
+     *  cos = New console output stream
+     */
+    void setConsoleStream(ConsoleOutputStream cos)
+    {
+        loadDefaultColors(cos);
+    }
 }
 else version(Posix)
 {
     import std.stdio, core.sys.posix.unistd;
     
-    enum Color
-    {
-        Black        = 30,
-        Red          = 31,
-        Green        = 32,
-        Yellow       = 33,
-        Blue         = 34,
-        Magenta      = 35,
-        Cyan         = 36,
-        LightGray    = 37,
+    ///
+    enum Color : ushort
+    {        
+        Black        = 30, /// The black color.
+        Red          = 31, /// The red color.
+        Green        = 32, /// The green color.
+        Yellow       = 33, /// The yellow color.
+        Blue         = 34, /// The blue color.
+        Magenta      = 35, /// The magenta color. (dark pink like)
+        Cyan         = 36, /// The cyan color. (blue-green)
+        LightGray    = 37, /// The light gray color. (silver)
         
-        Gray         = 94,
-        LightRed     = 95,
-        LightGreen   = 96,
-        LightYellow  = 97,
-        LightBlue    = 98,
-        LightMagenta = 99,
-        LightCyan    = 100,
-        White        = 101,
+        Gray         = 94,  /// The gray color.
+        LightRed     = 95,  /// The light red color.
+        LightGreen   = 96,  /// The light green color.
+        LightYellow  = 97,  /// The light yellow color.
+        LightBlue    = 98,  /// The light red color.
+        LightMagenta = 99,  /// The light magenta color. (pink)
+        LightCyan    = 100, /// The light cyan color.(light blue-green)
+        White        = 101, /// The white color.
         
-        Bright       = 64,
-        
-        Default      = 39
+        Bright       = 64,  /// Bright flag. Use with dark colors to make them light equivalents.
+        Default      = 256  /// Default color
     }
+    
+    static this()
+    {
+        stream = stdout;
+    }
+    
     
     __gshared
     {   
         Color fg = Color.Default;
         Color bg = Color.Default;
+        File stream;
     }
     
     private bool isRedirected()
     {
-        return isatty( fileno(stdout.getFP) ) != 1;
+        return isatty( fileno(stream.getFP) ) != 1;
     }
     
     /**
      * Sets console foreground color
      *
      * Params:
-     *  color = Color to set
+     *  color = Foreground color to set
      */
     void setConsoleForeground(Color color)
     {
@@ -179,19 +236,19 @@ else version(Posix)
             return;
         }
         
-        fg = color;
-        writef("\033[%d;%d;%dm", 
+        fg = color;        
+        stream.writef("\033[%d;%d;%dm", 
             color & Color.Bright ? 1 : 0, 
             cast(int)(fg & ~Color.Bright),
             cast(int)(bg & ~Color.Bright) + 10
-        );        
+        );
     }
     
     /**
      * Sets console background color
      *
      * Params:
-     *  color = Color to set
+     *  color = Background color to set
      */
     void setConsoleBackground(Color color)
     {
@@ -200,7 +257,7 @@ else version(Posix)
         }
         
         bg = color;
-        writef("\033[%d;%d;%dm", 
+        stream.writef("\033[%d;%d;%dm", 
             color & Color.Bright ? 1 : 0, 
             cast(int)(fg & ~Color.Bright),
             cast(int)(bg & ~Color.Bright) + 10
@@ -209,6 +266,9 @@ else version(Posix)
     
     /**
      * Current console background color
+     * 
+     * Returns:
+     *  Current foreground color set
      */
     Color getConsoleForeground()
     {
@@ -217,10 +277,52 @@ else version(Posix)
     
     /**
      * Current console font color
+     * 
+     * Returns:
+     *  Current background color set
      */
     Color getConsoleBackground()
     {
         return bg;
     }
+    
+    /**
+     * Sets new console output stream
+     * 
+     * Params:
+     *  cos = New console output stream
+     */
+    void setConsoleStream(ConsoleOutputStream cos)
+    {
+        if(cos == ConsoleOutputStream.Stdout) {
+            stream = stdout;
+        } else if(cos == ConsoleOutputStream.Stderr) {
+            stream = stderr;
+        } else {
+            assert(0, "Invalid consone output stream specified");
+        }
+    }
 }
 
+
+/**
+ * Sets both foreground and background colors
+ * 
+ * Params:
+ *  fg = Foreground color
+ *  bg = Background color
+ */
+void setConsoleColors(Color fg, Color bg)
+{
+    setConsoleForeground(fg);
+    setConsoleBackground(bg);
+}
+
+
+/**
+ * Brings default colors back
+ */
+void resetConsoleColors()
+{
+    setConsoleColors(Color.Default, Color.Default);
+}

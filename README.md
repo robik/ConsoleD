@@ -2,12 +2,12 @@
 
 ### License
 
- This library is licensed under public domain.
+ This library is licensed under MIT License.
 
 ### About
 
 ColorD is open-source, small library written in [D Programming Language](http://dlang.org) that 
-helps you add color to your console output. Work on both Windows and Linux operating systems.
+helps you add color to your console output. Work on both Windows and Posix operating systems.
 
 
 ### Examples
