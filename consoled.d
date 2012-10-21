@@ -51,6 +51,9 @@ enum FontStyle
 
 version(Windows)
 { 
+    private enum BG_MASK = 0xf0;
+    private enum FG_MASK = 0x0f;
+    
     import core.sys.windows.windows, std.algorithm, std.stdio;
     
     ///
@@ -100,8 +103,12 @@ version(Windows)
         // Get current colors
         CONSOLE_SCREEN_BUFFER_INFO info;
         GetConsoleScreenBufferInfo( hConsole, &info );
-        defBg = cast(Color)((info.wAttributes & (0b11110000)) >> 4);
-        defFg = cast(Color) (info.wAttributes & (0b00001111));
+        
+        // Background are first 4 bits
+        defBg = cast(Color)((info.wAttributes & (BG_MASK)) >> 4);
+                
+        // Rest are foreground
+        defFg = cast(Color) (info.wAttributes & (FG_MASK));
         
         fg = Color.initial;
         bg = Color.initial;
@@ -214,6 +221,14 @@ else version(Posix)
 {
     import std.stdio, core.sys.posix.unistd;
     
+    enum {
+        UNDERLINE_ENABLE  = 4,
+        UNDERLINE_DISABLE = 24,
+            
+        STRIKE_ENABLE     = 9,
+        STRIKE_DISABLE    = 29
+    }
+    
     ///
     enum Color : ushort
     {        
@@ -263,10 +278,10 @@ else version(Posix)
         stream.writef("\033[%d;%d;%d;%d;%dm",
             fg &  Color.bright ? 1 : 0,            
             fg & ~Color.bright,
-            bg & ~Color.bright + 10,
+            bg & ~Color.bright + 10, // Background colors are normal + 10
             
-            fontStyle & FontStyle.underline     ? 4 : 24,
-            fontStyle & FontStyle.strikethrough ? 9 : 29
+            fontStyle & FontStyle.underline     ? UNDERLINE_ENABLE : UNDERLINE_DISABLE,
+            fontStyle & FontStyle.strikethrough ? STRIKE_ENABLE    : STRIKE_DISABLE
         );        
     }
     

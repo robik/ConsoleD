@@ -13,7 +13,6 @@ helps you add colors and formatting to your console output. Work on both Windows
 
  * Font styles(underline, strikethrough) have no effect on Windows OS.
  * Light background colors are not supported on Posix, Non-light equivalents are used.
- * On Linux, getting current colors(Foreground, Background) without using any of `setConsole*` always results in Color.initial, on Windows it returns current used color.
 
 ### Examples
 
