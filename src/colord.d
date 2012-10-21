@@ -398,7 +398,6 @@ void resetFontStyle()
 struct EnumTypedef(T, string _name) if(is(T == enum))
 {
     public T val = T.init;
-    public string name = _name;
     
     this(T v) { val = v; }
     
