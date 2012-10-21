@@ -382,22 +382,14 @@ void setConsoleColors(T...)(T params)
  */
 void resetConsoleColors()
 {
-<<<<<<< HEAD
     setConsoleColors(Fg.initial, Bg.initial);
-=======
-    setConsoleColors(Color.initial, Color.initial);
->>>>>>> 696b316a9c268f4b7ffb952f874281d0362eff73
 }
 
 
 /**
  * Brings font formatting to default
  */
-<<<<<<< HEAD
 void resetFontStyle()
-=======
-void resetFontFormatting()
->>>>>>> 696b316a9c268f4b7ffb952f874281d0362eff73
 {
     setFontStyle(FontStyle.none);
 }
@@ -453,8 +445,4 @@ void writecln(T...)(T params)
 {
     writec(params);
     writeln();
-<<<<<<< HEAD
 }
-=======
-}
->>>>>>> 696b316a9c268f4b7ffb952f874281d0362eff73
