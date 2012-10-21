@@ -30,6 +30,7 @@ void main()
     writeln("foo"); // Color: Red | Bg: Blue
     
     // Above code can be replaced with
+    
 	// Fg and Bg are typedefs for Color
     setConsoleColors(Fg.red, Bg.blue);
     

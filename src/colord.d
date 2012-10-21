@@ -360,13 +360,20 @@ else version(Posix)
  * Sets both foreground and background colors
  * 
  * Params:
- *  fg = Foreground color
- *  bg = Background color
+ *  params = Colors to set
  */
-void setConsoleColors(Color fg, Color bg)
+void setConsoleColors(T...)(T params)
 {
-    setConsoleForeground(fg);
-    setConsoleBackground(bg);
+    foreach(param; params)
+    {
+        static if(is(typeof(param) == Fg)) {
+            setConsoleForeground(param.val);
+        } else static if(is(typeof(param) == Bg)) {
+            setConsoleBackground(param.val);
+        } else {
+            static assert(0, "Invalid parameter specified to setConsoleColors");
+        }
+    }
 }
 
 
@@ -375,14 +382,14 @@ void setConsoleColors(Color fg, Color bg)
  */
 void resetConsoleColors()
 {
-    setConsoleColors(Color.initial, Color.initial);
+    setConsoleColors(Fg.initial, Bg.initial);
 }
 
 
 /**
  * Brings font formatting to default
  */
-void resetFontFormatting()
+void resetFontStyle()
 {
     setFontStyle(FontStyle.none);
 }

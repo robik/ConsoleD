@@ -29,10 +29,6 @@ void main()
     setConsoleBackground(Color.blue);
     writeln("foo"); // Color: Red | Bg: Blue
     
-    // Above code can be replaced with
-	// Fg and Bg are typedefs for Color
-    setConsoleColors(Fg.red, Bg.blue);
-    
     resetConsoleColors(); // Bring back initial state
 }
 ```
@@ -60,18 +56,6 @@ void main()
 {
     setFontStyle(FontStyle.underline | FontStyle.strikethrough);
     writeln("foo");
-    resetFontStyle(); // Or just setFontStyle(FontStyle.none);
-}
-```
-
-#### Easy colored messages
-
-```D
-import std.stdio, colord;
-
-void main()
-{
-    writecln("Hello ", Fg.blue, "World", Bg.red, "!");
-    resetConsoleColors();
+    resetFontStyle();
 }
 ```
