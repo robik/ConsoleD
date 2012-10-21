@@ -5,6 +5,10 @@
  * On Windows OS it uses SetConsoleAttribute function family,
  * On POSIX systems it uses ANSI codes.
  * 
+ * Important notes:
+ *  - Font styles have no effect on windows platform.
+ *  - Light background colors are not supported. Non-light equivalents are used on Posix platforms.
+ * 
  * Examples:
  * ------
  * import std.stdio, colord;
@@ -22,13 +26,28 @@
  */
 module colord;
 
+import std.typecons;
+
 
 /// Console output stream
 enum ConsoleOutputStream
 {
-    Stdout,
-    Stderr
-};
+    stdout,
+    stderr
+}
+
+
+/**
+ * Console font output style
+ * 
+ * Does nothing on windows.
+ */
+enum FontStyle
+{
+    none          = 0, /// Default
+    underline     = 1, /// Underline
+    strikethrough = 2  /// Characters legible, but marked for deletion. Not widely supported.
+}
 
 version(Windows)
 { 
@@ -37,40 +56,40 @@ version(Windows)
     ///
     enum Color : ushort
     {        
-        Black        = 0, /// The black color.
-        Blue         = 1, /// The blue color.
-        Green        = 2, /// The green color.
-        Cyan         = 3, /// The cyan color. (blue-green)
-        Red          = 4, /// The red color.
-        Magenta      = 5, /// The magenta color. (dark pink like)
-        Yellow       = 6, /// The yellow color.
-        LightGray    = 7, /// The light gray color. (silver)
+        black        = 0, /// The black color.
+        blue         = 1, /// The blue color.
+        green        = 2, /// The green color.
+        cyan         = 3, /// The cyan color. (blue-green)
+        red          = 4, /// The red color.
+        magenta      = 5, /// The magenta color. (dark pink like)
+        yellow       = 6, /// The yellow color.
+        lightGray    = 7, /// The light gray color. (silver)
         
-        Gray         = 8,  /// The gray color.
-        LightBlue    = 9,  /// The light blue color.
-        LightGreen   = 10, /// The light green color.
-        LightCyan    = 11, /// The light cyan color.(light blue-green)
-        LightRed     = 12, /// The light red color.
-        LightMagenta = 13, /// The light magenta color. (pink)
-        LightYellow  = 14, /// The light yellow color.
-        White        = 15, /// The white color.
+        gray         = 8,  /// The gray color.
+        lightBlue    = 9,  /// The light blue color.
+        lightGreen   = 10, /// The light green color.
+        lightCyan    = 11, /// The light cyan color.(light blue-green)
+        lightRed     = 12, /// The light red color.
+        lightMagenta = 13, /// The light magenta color. (pink)
+        lightYellow  = 14, /// The light yellow color.
+        white        = 15, /// The white color.
         
-        Bright       = 8,  /// Bright flag. Use with dark colors to make them light equivalents.
-        Default      = 256 /// Default color.
+        bright       = 8,  /// Bright flag. Use with dark colors to make them light equivalents.
+        initial      = 256 /// Default color.
     }
     
     shared static this()
     {
-        loadDefaultColors(ConsoleOutputStream.Stdout);
+        loadDefaultColors(ConsoleOutputStream.stdout);
     }
     
     private void loadDefaultColors(ConsoleOutputStream cos)
     {
         uint handle;
         
-        if(cos == ConsoleOutputStream.Stdout) {
+        if(cos == ConsoleOutputStream.stdout) {
             handle = STD_OUTPUT_HANDLE;
-        } else if(cos == ConsoleOutputStream.Stderr) {
+        } else if(cos == ConsoleOutputStream.stderr) {
             handle = STD_ERROR_HANDLE;
         } else {
             assert(0, "Invalid consone output stream specified");
@@ -82,10 +101,10 @@ version(Windows)
         CONSOLE_SCREEN_BUFFER_INFO info;
         GetConsoleScreenBufferInfo( hConsole, &info );
         defBg = cast(Color)((info.wAttributes & (0b11110000)) >> 4);
-        defFg = cast(Color)(info.wAttributes & (0b00001111));
+        defFg = cast(Color) (info.wAttributes & (0b00001111));
         
-        fg = Color.Default;
-        bg = Color.Default;
+        fg = Color.initial;
+        bg = Color.initial;
     }
     
     private __gshared
@@ -98,15 +117,21 @@ version(Windows)
     
     private ushort buildColor(Color fg, Color bg)
     {
-        if(fg == Color.Default) {
+        if(fg == Color.initial) {
             fg = defFg;
         }
         
-        if(bg == Color.Default) {
+        if(bg == Color.initial) {
             bg = defBg;
         }
             
         return cast(ushort)(fg | bg << 4);
+    }
+    
+    private void updateColor()
+    {
+        stdout.flush();
+        SetConsoleTextAttribute(hConsole, buildColor(fg, bg));
     }
     
     
@@ -142,9 +167,8 @@ version(Windows)
      */
     void setConsoleForeground(Color color)
     {
-        stdout.flush();
-        SetConsoleTextAttribute(hConsole, buildColor(color, bg));
         fg = color;
+        updateColor();
     }
     
     
@@ -157,10 +181,9 @@ version(Windows)
      *  color = Background color to set
      */
     void setConsoleBackground(Color color)
-    {   
-        stdout.flush();
-        SetConsoleTextAttribute(hConsole, buildColor(fg, color));
+    {
         bg = color;
+        updateColor();
     }
     
     /**
@@ -176,6 +199,16 @@ version(Windows)
     {
         loadDefaultColors(cos);
     }
+    
+    /**
+     * Sets console font style
+     * 
+     * Does nothing on windows.
+     * 
+     * Params:
+     *  fs = Font style to set
+     */
+    void setFontStyle(FontStyle fs) {}
 }
 else version(Posix)
 {
@@ -184,26 +217,26 @@ else version(Posix)
     ///
     enum Color : ushort
     {        
-        Black        = 30, /// The black color.
-        Red          = 31, /// The red color.
-        Green        = 32, /// The green color.
-        Yellow       = 33, /// The yellow color.
-        Blue         = 34, /// The blue color.
-        Magenta      = 35, /// The magenta color. (dark pink like)
-        Cyan         = 36, /// The cyan color. (blue-green)
-        LightGray    = 37, /// The light gray color. (silver)
+        black        = 30, /// The black color.
+        red          = 31, /// The red color.
+        green        = 32, /// The green color.
+        yellow       = 33, /// The yellow color.
+        blue         = 34, /// The blue color.
+        magenta      = 35, /// The magenta color. (dark pink like)
+        cyan         = 36, /// The cyan color. (blue-green)
+        lightGray    = 37, /// The light gray color. (silver)
         
-        Gray         = 94,  /// The gray color.
-        LightRed     = 95,  /// The light red color.
-        LightGreen   = 96,  /// The light green color.
-        LightYellow  = 97,  /// The light yellow color.
-        LightBlue    = 98,  /// The light red color.
-        LightMagenta = 99,  /// The light magenta color. (pink)
-        LightCyan    = 100, /// The light cyan color.(light blue-green)
-        White        = 101, /// The white color.
+        gray         = 94,  /// The gray color.
+        lightRed     = 95,  /// The light red color.
+        lightGreen   = 96,  /// The light green color.
+        lightYellow  = 97,  /// The light yellow color.
+        lightBlue    = 98,  /// The light red color.
+        lightMagenta = 99,  /// The light magenta color. (pink)
+        lightCyan    = 100, /// The light cyan color.(light blue-green)
+        white        = 101, /// The white color.
         
-        Bright       = 64,  /// Bright flag. Use with dark colors to make them light equivalents.
-        Default      = 256  /// Default color
+        bright       = 64,  /// Bright flag. Use with dark colors to make them light equivalents.
+        initial      = 256  /// Default color
     }
     
     shared static this()
@@ -214,14 +247,27 @@ else version(Posix)
     
     private __gshared
     {   
-        Color fg = Color.Default;
-        Color bg = Color.Default;
+        Color fg = Color.initial;
+        Color bg = Color.initial;
         File stream;
+        FontStyle fontStyle;
     }
     
     private bool isRedirected()
     {
         return isatty( fileno(stream.getFP) ) != 1;
+    }
+    
+    private void printAnsi()
+    {
+        stream.writef("\033[%d;%d;%d;%d;%dm",
+            fg &  Color.bright ? 1 : 0,            
+            fg & ~Color.bright,
+            bg & ~Color.bright + 10,
+            
+            fontStyle & FontStyle.underline     ? 4 : 24,
+            fontStyle & FontStyle.strikethrough ? 9 : 29
+        );        
     }
     
     /**
@@ -237,11 +283,7 @@ else version(Posix)
         }
         
         fg = color;        
-        stream.writef("\033[%d;%d;%dm", 
-            color & Color.Bright ? 1 : 0, 
-            cast(int)(fg & ~Color.Bright),
-            cast(int)(bg & ~Color.Bright) + 10
-        );
+        printAnsi();
     }
     
     /**
@@ -257,11 +299,7 @@ else version(Posix)
         }
         
         bg = color;
-        stream.writef("\033[%d;%d;%dm", 
-            color & Color.Bright ? 1 : 0, 
-            cast(int)(fg & ~Color.Bright),
-            cast(int)(bg & ~Color.Bright) + 10
-        );        
+        printAnsi();
     }   
     
     /**
@@ -294,13 +332,26 @@ else version(Posix)
      */
     void setConsoleStream(ConsoleOutputStream cos)
     {
-        if(cos == ConsoleOutputStream.Stdout) {
+        if(cos == ConsoleOutputStream.stdout) {
             stream = stdout;
-        } else if(cos == ConsoleOutputStream.Stderr) {
+        } else if(cos == ConsoleOutputStream.stderr) {
             stream = stderr;
         } else {
             assert(0, "Invalid consone output stream specified");
         }
+    }
+    
+    
+    /**
+     * Sets console font style
+     * 
+     * Params:
+     *  fs = Font style to set
+     */
+    void setFontStyle(FontStyle fs)
+    {
+        fontStyle = fs;
+        printAnsi();
     }
 }
 
@@ -324,5 +375,67 @@ void setConsoleColors(Color fg, Color bg)
  */
 void resetConsoleColors()
 {
-    setConsoleColors(Color.Default, Color.Default);
+    setConsoleColors(Color.initial, Color.initial);
+}
+
+
+/**
+ * Brings font formatting to default
+ */
+void resetFontFormatting()
+{
+    setFontStyle(FontStyle.none);
+}
+
+
+struct EnumTypedef(T, string _name) if(is(T == enum))
+{
+    public T val = T.init;
+    public string name = _name;
+    
+    this(T v) { val = v; }
+    
+    static EnumTypedef!(T, _name) opDispatch(string n)()
+    {
+        return EnumTypedef!(T, _name)(__traits(getMember, val, n));
+    }
+}
+
+/// Alias for color enum
+alias EnumTypedef!(Color, "fg") Fg;
+
+/// ditto
+alias EnumTypedef!(Color, "bg") Bg;
+
+
+/**
+ * Writes text to console and colorizes text
+ * 
+ * Params:
+ *  params = Text to write
+ */
+void writec(T...)(T params)
+{
+    foreach(param; params)
+    {
+        static if(is(typeof(param) == Fg)) {
+            setConsoleForeground(param.val);
+        } else static if(is(typeof(param) == Bg)) {
+            setConsoleBackground(param.val);
+        } else {
+            write(param);
+        }
+    }
+}
+
+/**
+ * Writes line to console and goes to newline
+ * 
+ * Params:
+ *  params = Text to write
+ */
+void writecln(T...)(T params)
+{
+    writec(params);
+    writeln();
 }
