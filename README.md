@@ -1,4 +1,4 @@
-## ColorD
+## ConsoleD
 
 ### License
 
@@ -6,8 +6,8 @@
 
 ### About
 
-ColorD is open-source, small library written in [D Programming Language](http://dlang.org) that 
-helps you add color to your console output. Work on both Windows and Posix operating systems.
+ConsoleD is open-source, small library written in [D Programming Language](http://dlang.org) that 
+helps you add colors and formatting to your console output. Work on both Windows and Posix operating systems.
 
 #### Important notes:
 
@@ -20,7 +20,7 @@ helps you add color to your console output. Work on both Windows and Posix opera
 #### Adding colors
 
 ```D
-import std.stdio, colord;
+import std.stdio, consoled;
 
 void main()
 {
@@ -42,7 +42,7 @@ void main()
 #### Current Foreground/Background
 
 ```D
-import std.stdio, colord;
+import std.stdio, consoled;
 
 void main()
 {
@@ -55,7 +55,7 @@ void main()
 #### Font Styles
 
 ```D
-import std.stdio, colord;
+import std.stdio, consoled;
 
 void main()
 {
@@ -68,7 +68,7 @@ void main()
 #### Easy colored messages
 
 ```D
-import std.stdio, colord;
+import std.stdio, consoled;
 
 void main()
 {

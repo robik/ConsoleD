@@ -1,8 +1,8 @@
 /**
- * ColorD
+ * ConsoleD
  * 
- * Provides simple API for coloring text in terminal.
- * On Windows OS it uses SetConsoleAttribute function family,
+ * Provides simple API for coloring and formatting text in terminal.
+ * On Windows OS it uses SetConsoleAttribute functions family,
  * On POSIX systems it uses ANSI codes.
  * 
  * Important notes:
@@ -11,7 +11,7 @@
  * 
  * Examples:
  * ------
- * import std.stdio, colord;
+ * import std.stdio, consoled;
  * void main()
  * {
  *     setConsoleForeground(Color.Red);
@@ -24,7 +24,7 @@
  * License: <a href="http://www.boost.org/LICENSE_1_0.txt">Boost License</a>
  * Authors: <a href="http://github.com/robik">Robert 'Robik' Pasiński</a>
  */
-module colord;
+module consoled;
 
 import std.typecons;
 
