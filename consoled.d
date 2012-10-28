@@ -5,6 +5,8 @@
  * On Windows OS it uses SetConsoleAttribute functions family,
  * On POSIX systems it uses ANSI codes.
  * 
+ * Imports std.typecons publicly.
+ * 
  * Important notes:
  *  - Font styles have no effect on windows platform.
  *  - Light background colors are not supported. Non-light equivalents are used on Posix platforms.
@@ -26,7 +28,7 @@
  */
 module consoled;
 
-import std.typecons;
+public import std.typecons;
 
 
 /// Console output stream
@@ -49,12 +51,20 @@ enum FontStyle
     strikethrough = 2  /// Characters legible, but marked for deletion. Not widely supported.
 }
 
+alias Tuple!(int, "x", int, "y") ConsolePoint;
+
+
 version(Windows)
 { 
     private enum BG_MASK = 0xf0;
     private enum FG_MASK = 0x0f;
     
-    import core.sys.windows.windows, std.algorithm, std.stdio;
+    import core.sys.windows.windows, std.algorithm, std.stdio, std.string;
+	
+	extern(C) BOOL SetConsoleTitle(
+	  LPCTSTR lpConsoleTitle
+	);
+
     
     ///
     enum Color : ushort
@@ -84,6 +94,7 @@ version(Windows)
     shared static this()
     {
         loadDefaultColors(ConsoleOutputStream.stdout);
+		cursorPos = ConsolePoint(info.dwCursorPosition.X, info.dwCursorPosition.Y);
     }
     
     private void loadDefaultColors(ConsoleOutputStream cos)
@@ -97,11 +108,10 @@ version(Windows)
         } else {
             assert(0, "Invalid consone output stream specified");
         }
+		
         
         hConsole = GetStdHandle(handle);
-        
         // Get current colors
-        CONSOLE_SCREEN_BUFFER_INFO info;
         GetConsoleScreenBufferInfo( hConsole, &info );
         
         // Background are first 4 bits
@@ -116,8 +126,10 @@ version(Windows)
     
     private __gshared
     {
+        CONSOLE_SCREEN_BUFFER_INFO info;
         HANDLE hConsole = null;
-        
+		ConsolePoint cursorPos;
+		
         Color fg, bg, defFg, defBg;
     }
     
@@ -216,10 +228,73 @@ version(Windows)
      *  fs = Font style to set
      */
     void setFontStyle(FontStyle fs) {}
+    
+    
+    /**
+     * Console size
+     * 
+     * Returns:
+     *  Tuple containing console rows and cols.
+     */
+    ConsolePoint getConsoleSize()
+    {
+        GetConsoleScreenBufferInfo( hConsole, &info );
+        
+        int cols, rows;
+        
+        cols = (info.srWindow.Right  - info.srWindow.Left + 1);
+        rows = (info.srWindow.Bottom - info.srWindow.Top  + 1);
+
+        return ConsolePoint(cols, rows);
+    }
+    
+    
+    /**
+     * Sets console position
+     * 
+     * Params:
+     *  x = X coordinate of cursor postion
+     *  y = Y coordinate of cursor position
+     */
+    void setConsoleCursor(int x, int y)
+    {
+        COORD coord = {cast(short)x, cast(short)y};
+        
+        SetConsoleCursorPosition(hConsole, coord);
+    }
+    
+    /**
+     * Sets console title
+     * 
+     * Params:
+     *  title = Title to set
+     */
+    void setConsoleTitle(string title)
+    {
+		SetConsoleTitleA(toStringz(title));
+	}
+	
+	/**
+     * Saves cursor position
+     */
+    void saveCursor()
+    {
+		GetConsoleScreenBufferInfo( hConsole, &info );
+		cursorPos = ConsolePoint(info.dwCursorPosition.X, info.dwCursorPosition.Y);
+	}
+	
+	/**
+	 * Restores cursor position
+	 */
+	void restoreCursor()
+	{
+		writeln(cursorPos);
+		setConsoleCursor(cursorPos.x, cursorPos.y);
+	}
 }
 else version(Posix)
 {
-    import std.stdio, core.sys.posix.unistd;
+    import std.stdio, core.sys.posix.unistd, core.sys.posix.sys.ioctl;
     
     enum {
         UNDERLINE_ENABLE  = 4,
@@ -368,6 +443,59 @@ else version(Posix)
         fontStyle = fs;
         printAnsi();
     }
+    
+    /**
+     * Console size
+     * 
+     * Returns:
+     *  Tuple containing console rows and cols.
+     */
+    ConsolePoint getConsoleSize()
+    {
+        winsize w;
+		ioctl(STDOUT_FILENO, TIOCGWINSZ, &w);
+
+		return ConsolePoint(cast(int)w.ws_col, cast(int)w.ws_row);
+    }
+    
+    /**
+     * Sets console position
+     * 
+     * Params:
+     *  x = X coordinate of cursor postion
+     *  y = Y coordinate of cursor position
+     */
+    void setConsoleCursor(int x, int y)
+    {
+        writef("\033[%d;%df", x, y);
+    }
+    
+    /**
+     * Saves cursor position
+     */
+    void saveCursor()
+    {
+		write("\033[s");
+	}
+	
+	/**
+	 * Restores cursor position
+	 */
+	void restoreCursor()
+	{
+		write("\033[u");
+	}
+	
+	/**
+     * Sets console title
+     * 
+     * Params:
+     *  title = Title to set
+     */
+    void setConsoleTitle(string title)
+	{
+		writef("\033]0;%s\007", title); // TODO: Check if supported
+	}
 }
 
 
@@ -389,6 +517,23 @@ void setConsoleColors(T...)(T params)
             static assert(0, "Invalid parameter specified to setConsoleColors");
         }
     }
+}
+
+    
+/**
+ * Clears console screen
+ */
+void clearConsoleScreen()
+{
+	saveCursor();
+	auto size = getConsoleSize();
+	short length = cast(short)(size.x * size.y); // Number of all characters to write
+	setConsoleCursor(0, 0);
+	
+	write( std.array.replicate(" ", length));
+	stdout.flush();
+	
+	restoreCursor();
 }
 
 
