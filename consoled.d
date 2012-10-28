@@ -49,6 +49,30 @@ enum FontStyle
     strikethrough = 2  /// Characters legible, but marked for deletion. Not widely supported.
 }
 
+
+/**
+ * Represents close event.
+ */
+struct CloseEvent
+{
+    /// Close type
+    CloseType type;
+    
+    /// Is close event blockable?
+    bool      isBlockable;
+}
+
+/**
+ * Close type.
+ */
+enum CloseType
+{
+    Interrupt, // User pressed Ctrl+C key combination.
+    Stop,      // User pressed Ctrl+Break key combination. On posix it is Ctrl+Z.
+    Quit,      // Posix only. User pressed Ctrl+\ key combination.
+    Other      // Other close reasons. Probably unblockable.
+}
+
 /**
  * Represents point in console.
  */
@@ -63,7 +87,6 @@ version(Windows)
     
     import core.sys.windows.windows, std.algorithm, std.stdio, std.string;
 
-    
     ///
     enum Color : ushort
     {        
@@ -89,10 +112,23 @@ version(Windows)
         initial      = 256 /// Default color.
     }
     
+    
+    private __gshared
+    {
+        CONSOLE_SCREEN_BUFFER_INFO info;
+        HANDLE hConsole = null;
+        ConsolePoint cursorPos;
+        
+        Color fg, bg, defFg, defBg;
+        void function(CloseEvent)[] closeHandlers;
+    }
+    
+    
     shared static this()
     {
         loadDefaultColors(ConsoleOutputStream.stdout);
         cursorPos = ConsolePoint(info.dwCursorPosition.X, info.dwCursorPosition.Y);
+        SetConsoleCtrlHandler(cast(PHANDLER_ROUTINE)&defaultCloseHandler, true);
     }
     
     private void loadDefaultColors(ConsoleOutputStream cos)
@@ -121,16 +157,6 @@ version(Windows)
         fg = Color.initial;
         bg = Color.initial;
     }
-    
-    private __gshared
-    {
-        CONSOLE_SCREEN_BUFFER_INFO info;
-        HANDLE hConsole = null;
-        ConsolePoint cursorPos;
-        
-        Color fg, bg, defFg, defBg;
-    }
-    
     
     private ushort buildColor(Color fg, Color bg)
     {
@@ -288,13 +314,65 @@ version(Windows)
     {
         setConsoleCursor(cursorPos.x, cursorPos.y);
     }
+    
+    /**
+     * Adds handler for console close event.
+     * 
+     * Params:
+     *  closeHandler = New close handler
+     */
+    void addConsoleCloseHandler(void function(CloseEvent) closeHandler)
+    {
+        closeHandlers ~= closeHandler;
+    }
+    
+    private CloseEvent idToCloseEvent(ulong i)
+    {
+        CloseEvent ce;
+        
+        switch(i)
+        {
+            case 0:
+                ce.type = CloseType.Interrupt;
+            break;
+                
+            case 1:
+                ce.type = CloseType.Stop;
+            break;
+                
+            default:
+                ce.type = CloseType.Other;
+        }
+        
+        ce.isBlockable = (ce.type == CloseType.Other) ? false : true;
+        
+        return ce;
+    }
+    
+    private bool defaultCloseHandler(ulong reason)
+    {
+        foreach(closeHandler; closeHandlers)
+        {
+            closeHandler(idToCloseEvent(reason));
+        }
+        
+        return true;
+    }
 }
 ///////////////////////////////////////////////////////////////////////////////////////
 else version(Posix)
 {
-    import std.stdio, core.sys.posix.unistd, core.sys.posix.sys.ioctl;
+    import std.stdio, 
+            core.sys.posix.unistd,
+            core.sys.posix.sys.ioctl;
     
-    enum {
+    enum SIGINT  = 2;
+    enum SIGTSTP = 20;
+    enum SIGQUIT = 3;
+    extern(C) void signal(int, void function(int) @system);
+    
+    enum
+    {
         UNDERLINE_ENABLE  = 4,
         UNDERLINE_DISABLE = 24,
             
@@ -327,11 +405,6 @@ else version(Posix)
         initial      = 256  /// Default color
     }
     
-    shared static this()
-    {
-        stream = stdout;
-    }
-    
     
     private __gshared
     {   
@@ -339,7 +412,18 @@ else version(Posix)
         Color bg = Color.initial;
         File stream;
         FontStyle fontStyle;
+        
+        void function(CloseEvent)[] closeHandlers;
     }
+    
+    shared static this()
+    {
+        stream = stdout;
+        signal(SIGINT,  &defaultCloseHandler);
+        signal(SIGTSTP, &defaultCloseHandler);
+        signal(SIGQUIT, &defaultCloseHandler);
+    }
+    
     
     private bool isRedirected()
     {
@@ -497,6 +581,52 @@ else version(Posix)
     {
         writef("\033]0;%s\007", title); // TODO: Check if supported
         stdout.flush();
+    }
+    
+    /**
+     * Adds handler for console close event.
+     * 
+     * Params:
+     *  closeHandler = New close handler
+     */
+    void addConsoleCloseHandler(void function(CloseEvent) closeHandler)
+    {
+        closeHandlers ~= closeHandler;
+    }
+    
+    private CloseEvent idToCloseEvent(ulong i)
+    {
+        CloseEvent ce;
+        
+        switch(i)
+        {
+            case SIGINT:
+                ce.type = CloseType.Interrupt;
+            break;
+            
+            case SIGQUIT:
+                ce.type = CloseType.Quit;
+            break;
+            
+            case SIGTSTP:
+                ce.type = CloseType.Stop;
+            break;
+            
+            default:
+                ce.type = CloseType.Other;
+        }
+        
+        ce.isBlockable = (ce.type == CloseType.Other) ? false : true;
+        
+        return ce;
+    }
+    
+    private extern(C) void defaultCloseHandler(int reason) @system
+    {
+        foreach(closeHandler; closeHandlers)
+        {
+            closeHandler(idToCloseEvent(reason));
+        }
     }
 }
 

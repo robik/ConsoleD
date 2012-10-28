@@ -157,3 +157,45 @@ void main()
 	setConsoleTitle("My new title");
 }
 ```
+
+
+#### Setting exit handler
+
+It is possible to handle some close events, such as Ctrl+C key combination using `addConsoleCloseHandler()`:
+
+```D
+import std.stdio, consoled;
+void main()
+{   
+    setConsoleCloseHandler((i){
+        switch(i.type)
+        {
+            case CloseType.Other:
+                writeln("Other");
+            break;
+            
+            case CloseType.Interrupt:
+                writeln("Ctrl+C");
+            break;
+            
+            // Ctrl+Break for windows, Ctrl+Z for posix
+            case CloseType.Stop:
+                writeln("Ctrl+Break or Ctrl+Z");
+            break;
+            
+            
+            // Posix only
+            case CloseType.Quit:
+				writeln("Ctrl+\");
+            break;
+            
+            default:
+        }
+        
+        writeln(i.isBlockable);
+    });
+    
+    while(true){}
+}
+
+```
