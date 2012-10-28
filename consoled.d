@@ -5,8 +5,6 @@
  * On Windows OS it uses SetConsoleAttribute functions family,
  * On POSIX systems it uses ANSI codes.
  * 
- * Imports std.typecons publicly.
- * 
  * Important notes:
  *  - Font styles have no effect on windows platform.
  *  - Light background colors are not supported. Non-light equivalents are used on Posix platforms.
@@ -28,7 +26,7 @@
  */
 module consoled;
 
-public import std.typecons;
+import std.typecons;
 
 
 /// Console output stream
@@ -51,19 +49,19 @@ enum FontStyle
     strikethrough = 2  /// Characters legible, but marked for deletion. Not widely supported.
 }
 
+/**
+ * Represents point in console.
+ */
 alias Tuple!(int, "x", int, "y") ConsolePoint;
 
 
+//////////////////////////////////////////////////////////////////////////
 version(Windows)
 { 
     private enum BG_MASK = 0xf0;
     private enum FG_MASK = 0x0f;
     
     import core.sys.windows.windows, std.algorithm, std.stdio, std.string;
-    
-    extern(C) BOOL SetConsoleTitle(
-      LPCTSTR lpConsoleTitle
-    );
 
     
     ///
@@ -291,6 +289,7 @@ version(Windows)
         setConsoleCursor(cursorPos.x, cursorPos.y);
     }
 }
+///////////////////////////////////////////////////////////////////////////////////////
 else version(Posix)
 {
     import std.stdio, core.sys.posix.unistd, core.sys.posix.sys.ioctl;
@@ -527,7 +526,7 @@ void setConsoleColors(T...)(T params)
  */
 void fillArea(ConsolePoint p1, ConsolePoint p2, char fill)
 {
-    //saveCursor();
+    saveCursor();
     foreach(i; p1.y .. p2.y)
     {       
         setConsoleCursor(p1.x, i);
@@ -536,10 +535,25 @@ void fillArea(ConsolePoint p1, ConsolePoint p2, char fill)
         stdout.flush();
     }
     stdout.flush();
-    //restoreCursor();
+    restoreCursor();
 }
 
-    
+/**
+ * Writes at specified position
+ * 
+ * Params:
+ *  point = Where to write
+ *  data = Data to write
+ */
+void writeAt(T)(ConsolePoint point, T data)
+{
+    saveCursor();
+    setConsoleCursor(point.x, point.y);
+    write(data);
+    stdout.flush();
+    restoreCursor();
+}
+
 /**
  * Clears console screen
  */
