@@ -13,6 +13,7 @@ helps you add colors and formatting to your console output. Work on both Windows
 
  * Font styles(underline, strikethrough) have no effect on Windows OS.
  * Light background colors are not supported on Posix, Non-light equivalents are used.
+ * _Temponary_: Because `core.sys.posix.sys.ioctl` module was added recently, you must compile project with this [file](https://github.com/D-Programming-Language/druntime/blob/master/src/core/sys/posix/sys/ioctl.d).
 
 ### Examples
 

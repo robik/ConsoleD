@@ -60,10 +60,10 @@ version(Windows)
     private enum FG_MASK = 0x0f;
     
     import core.sys.windows.windows, std.algorithm, std.stdio, std.string;
-	
-	extern(C) BOOL SetConsoleTitle(
-	  LPCTSTR lpConsoleTitle
-	);
+    
+    extern(C) BOOL SetConsoleTitle(
+      LPCTSTR lpConsoleTitle
+    );
 
     
     ///
@@ -94,7 +94,7 @@ version(Windows)
     shared static this()
     {
         loadDefaultColors(ConsoleOutputStream.stdout);
-		cursorPos = ConsolePoint(info.dwCursorPosition.X, info.dwCursorPosition.Y);
+        cursorPos = ConsolePoint(info.dwCursorPosition.X, info.dwCursorPosition.Y);
     }
     
     private void loadDefaultColors(ConsoleOutputStream cos)
@@ -108,7 +108,7 @@ version(Windows)
         } else {
             assert(0, "Invalid consone output stream specified");
         }
-		
+        
         
         hConsole = GetStdHandle(handle);
         // Get current colors
@@ -128,8 +128,8 @@ version(Windows)
     {
         CONSOLE_SCREEN_BUFFER_INFO info;
         HANDLE hConsole = null;
-		ConsolePoint cursorPos;
-		
+        ConsolePoint cursorPos;
+        
         Color fg, bg, defFg, defBg;
     }
     
@@ -271,26 +271,25 @@ version(Windows)
      */
     void setConsoleTitle(string title)
     {
-		SetConsoleTitleA(toStringz(title));
-	}
-	
-	/**
+        SetConsoleTitleA(toStringz(title));
+    }
+    
+    /**
      * Saves cursor position
      */
     void saveCursor()
     {
-		GetConsoleScreenBufferInfo( hConsole, &info );
-		cursorPos = ConsolePoint(info.dwCursorPosition.X, info.dwCursorPosition.Y);
-	}
-	
-	/**
-	 * Restores cursor position
-	 */
-	void restoreCursor()
-	{
-		writeln(cursorPos);
-		setConsoleCursor(cursorPos.x, cursorPos.y);
-	}
+        GetConsoleScreenBufferInfo( hConsole, &info );
+        cursorPos = ConsolePoint(info.dwCursorPosition.X, info.dwCursorPosition.Y);
+    }
+    
+    /**
+     * Restores cursor position
+     */
+    void restoreCursor()
+    {
+        setConsoleCursor(cursorPos.x, cursorPos.y);
+    }
 }
 else version(Posix)
 {
@@ -453,9 +452,9 @@ else version(Posix)
     ConsolePoint getConsoleSize()
     {
         winsize w;
-		ioctl(STDOUT_FILENO, TIOCGWINSZ, &w);
+        ioctl(STDOUT_FILENO, TIOCGWINSZ, &w);
 
-		return ConsolePoint(cast(int)w.ws_col, cast(int)w.ws_row);
+        return ConsolePoint(cast(int)w.ws_col, cast(int)w.ws_row);
     }
     
     /**
@@ -467,7 +466,8 @@ else version(Posix)
      */
     void setConsoleCursor(int x, int y)
     {
-        writef("\033[%d;%df", x, y);
+        writef("\033[%d;%df", y + 1, x + 1);
+        stdout.flush();
     }
     
     /**
@@ -475,27 +475,30 @@ else version(Posix)
      */
     void saveCursor()
     {
-		write("\033[s");
-	}
-	
-	/**
-	 * Restores cursor position
-	 */
-	void restoreCursor()
-	{
-		write("\033[u");
-	}
-	
-	/**
+        write("\033[7");
+        stdout.flush();
+    }
+    
+    /**
+     * Restores cursor position
+     */
+    void restoreCursor()
+    {
+        write("\033[8");
+        stdout.flush();
+    }
+    
+    /**
      * Sets console title
      * 
      * Params:
      *  title = Title to set
      */
     void setConsoleTitle(string title)
-	{
-		writef("\033]0;%s\007", title); // TODO: Check if supported
-	}
+    {
+        writef("\033]0;%s\007", title); // TODO: Check if supported
+        stdout.flush();
+    }
 }
 
 
@@ -519,21 +522,38 @@ void setConsoleColors(T...)(T params)
     }
 }
 
+/**
+ * Clears console screen
+ */
+void fillArea(ConsolePoint p1, ConsolePoint p2, char fill)
+{
+    //saveCursor();
+    foreach(i; p1.y .. p2.y)
+    {       
+        setConsoleCursor(p1.x, i);
+        write( std.array.replicate((&fill)[0..1], p2.x - p1.x));
+                                // ^ Converting char to char[]
+        stdout.flush();
+    }
+    stdout.flush();
+    //restoreCursor();
+}
+
     
 /**
  * Clears console screen
  */
 void clearConsoleScreen()
 {
-	saveCursor();
-	auto size = getConsoleSize();
-	short length = cast(short)(size.x * size.y); // Number of all characters to write
-	setConsoleCursor(0, 0);
-	
-	write( std.array.replicate(" ", length));
-	stdout.flush();
-	
-	restoreCursor();
+    saveCursor();
+    auto size = getConsoleSize();
+    short length = cast(short)(size.x * size.y); // Number of all characters to write
+    setConsoleCursor(0, 0);
+    
+    write( std.array.replicate(" ", length));
+    stdout.flush();
+    
+    restoreCursor();
 }
 
 
