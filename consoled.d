@@ -116,7 +116,7 @@ version(Windows)
     private __gshared
     {
         CONSOLE_SCREEN_BUFFER_INFO info;
-        HANDLE hConsole = null;
+        HANDLE hConsole = null, hInput = null;
         ConsolePoint cursorPos;
         
         Color fg, bg, defFg, defBg;
@@ -145,6 +145,8 @@ version(Windows)
         
         
         hConsole = GetStdHandle(handle);
+        hInput   = GetStdHandle(STD_INPUT_HANDLE);
+        
         // Get current colors
         GetConsoleScreenBufferInfo( hConsole, &info );
         
@@ -272,7 +274,6 @@ version(Windows)
         return ConsolePoint(cols, rows);
     }
     
-    
     /**
      * Sets console position
      * 
@@ -282,9 +283,41 @@ version(Windows)
      */
     void setConsoleCursor(int x, int y)
     {
-        COORD coord = {cast(short)x, cast(short)y};
+        COORD coord = {
+            cast(short)min(getConsoleWidth(), max(0, x)), 
+            cast(short)max(0, y)
+        };
         
         SetConsoleCursorPosition(hConsole, coord);
+    }
+    
+    /**
+     * Gets cursor position
+     * 
+     * Returns:
+     *  Cursor position
+     */
+    ConsolePoint getConsoleCursor()
+    {
+        GetConsoleScreenBufferInfo( hConsole, &info );
+        return ConsolePoint(
+            info.dwCursorPosition.X, 
+            min(info.dwCursorPosition.Y, getConsoleHeight) // To keep same behaviour with posix
+        );
+    }
+    
+    /**
+     * Moves cursor by specified offset
+     * 
+     * Params:
+     *  x = X offset
+     *  y = Y offset
+     */
+    void move(int x, int y)
+    {
+        stdout.flush();
+        auto pos = getConsoleCursor();
+        setConsoleCursor(max(pos.x + x, 0), max(0, pos.y + y));
     }
     
     /**
@@ -299,20 +332,22 @@ version(Windows)
     }
     
     /**
-     * Saves cursor position
+     * Reads character without line buffering
+     * 
+     * Params:
+     *  echo = Print typed characters
      */
-    void saveCursor()
+    int getCharacter(bool echo = false)
     {
-        GetConsoleScreenBufferInfo( hConsole, &info );
-        cursorPos = ConsolePoint(info.dwCursorPosition.X, info.dwCursorPosition.Y);
-    }
-    
-    /**
-     * Restores cursor position
-     */
-    void restoreCursor()
-    {
-        setConsoleCursor(cursorPos.x, cursorPos.y);
+        int c;
+        DWORD state;
+        
+        GetConsoleMode(hInput, &state);
+        SetConsoleMode(hInput, 0);        
+        c = getchar();
+        SetConsoleMode(hInput, state);
+        
+        return c;
     }
     
     /**
@@ -363,8 +398,11 @@ version(Windows)
 else version(Posix)
 {
     import std.stdio, 
+            std.conv,
+            std.string,
             core.sys.posix.unistd,
-            core.sys.posix.sys.ioctl;
+            core.sys.posix.sys.ioctl,
+            core.sys.posix.termios;
     
     enum SIGINT  = 2;
     enum SIGTSTP = 20;
@@ -554,20 +592,50 @@ else version(Posix)
     }
     
     /**
-     * Saves cursor position
+     * Gets cursor position
+     * 
+     * Returns:
+     *  Cursor position
      */
-    void saveCursor()
+    ConsolePoint getConsoleCursor()
     {
-        write("\033[7");
+        termios told, tnew;
+        char[] buf;
+        
+        tcgetattr(0, &told);
+        tnew = told;
+        tnew.c_lflag &= ~ECHO & ~CREAD & ~ICANON;
+        tcsetattr(0, TCSANOW, &tnew);
+        
+        write("\033[6n");
         stdout.flush();
+        foreach(i; 0..8)
+        {
+            char c;
+            c = cast(char)getCharacter();
+            buf ~= c;
+            if(c == 'R')
+                break;
+        }
+        tcsetattr(0, TCSANOW, &told);
+        
+        buf = buf[2..$-1];
+        auto tmp = buf.split(";");
+        
+        return ConsolePoint(to!int(tmp[1]) - 1, to!int(tmp[0]) - 1);
     }
     
     /**
-     * Restores cursor position
+     * Moves cursor by specified offset
+     * 
+     * Params:
+     *  x = X offset
+     *  y = Y offset
      */
-    void restoreCursor()
+    void move(int x, int y)
     {
-        write("\033[8");
+        writef("\033[%dD", y);
+        writef("\033[%dB", x);
         stdout.flush();
     }
     
@@ -582,6 +650,29 @@ else version(Posix)
         writef("\033]0;%s\007", title); // TODO: Check if supported
         stdout.flush();
     }
+    
+    /**
+     * Reads character without line buffering
+     * 
+     * Params:
+     *  echo = Print typed characters
+     */
+    int getCharacter(bool echo = false)
+    {
+        termios told, tnew;
+        int c;
+        
+        tcgetattr(0, &told);
+        tnew = told;
+        tnew.c_lflag &= ~ECHO & ~ICANON;
+        tcsetattr(0, TCSANOW, &tnew);
+        
+        c = getchar();
+        tcsetattr(0, TCSANOW, &told);
+        
+        return c;
+    }
+    
     
     /**
      * Adds handler for console close event.
@@ -630,6 +721,71 @@ else version(Posix)
     }
 }
 
+/**
+ * Console width
+ * 
+ * Returns:
+ *  Console width as number of columns
+ */
+int getConsoleWidth()
+{
+    return getConsoleSize().x;
+}
+
+/**
+ * Console height
+ * 
+ * Returns:
+ *  Console height as number of rows
+ */
+int getConsoleHeight()
+{
+    return getConsoleSize().y;
+}
+
+/**
+ * Moves cursor up by n rows
+ * 
+ * Params:
+ *  n = Number of rows to move
+ */
+void moveUp(int n = 1)
+{
+    move(0, -n);
+}
+
+/**
+ * Moves cursor down by n rows
+ * 
+ * Params:
+ *  n = Number of rows to move
+ */
+void moveDown(int n = 1)
+{
+    move(0, n);
+}
+
+/**
+ * Moves cursor left by n columns
+ * 
+ * Params:
+ *  n = Number of columns to move
+ */
+void moveLeft(int n = 1)
+{
+    move(-n, 0);
+}
+
+/**
+ * Moves cursor right by n columns
+ * 
+ * Params:
+ *  n = Number of columns to move
+ */
+void moveRight(int n = 1)
+{
+    move(n, 0);
+}
 
 /**
  * Sets both foreground and background colors
@@ -656,7 +812,6 @@ void setConsoleColors(T...)(T params)
  */
 void fillArea(ConsolePoint p1, ConsolePoint p2, char fill)
 {
-    saveCursor();
     foreach(i; p1.y .. p2.y)
     {       
         setConsoleCursor(p1.x, i);
@@ -665,7 +820,6 @@ void fillArea(ConsolePoint p1, ConsolePoint p2, char fill)
         stdout.flush();
     }
     stdout.flush();
-    restoreCursor();
 }
 
 /**
@@ -677,11 +831,9 @@ void fillArea(ConsolePoint p1, ConsolePoint p2, char fill)
  */
 void writeAt(T)(ConsolePoint point, T data)
 {
-    saveCursor();
     setConsoleCursor(point.x, point.y);
     write(data);
     stdout.flush();
-    restoreCursor();
 }
 
 /**
@@ -689,15 +841,12 @@ void writeAt(T)(ConsolePoint point, T data)
  */
 void clearConsoleScreen()
 {
-    saveCursor();
     auto size = getConsoleSize();
     short length = cast(short)(size.x * size.y); // Number of all characters to write
     setConsoleCursor(0, 0);
     
     write( std.array.replicate(" ", length));
     stdout.flush();
-    
-    restoreCursor();
 }
 
 
