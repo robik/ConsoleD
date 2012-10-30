@@ -21,8 +21,14 @@ helps you add colors and formatting to your console output. Work on both Windows
  - Clearing screen
  - Setting console title
  - Getting console size
- - Moving the console cursor around
+ - Moving the console cursor around as well as getting its position
  - Handling the close event
+ - Getting input with not echo and without line buffering.
+ 
+### Todo
+
+ - Better input handling
+ - Mouse input?
 
 ### Examples
 
@@ -33,13 +39,13 @@ import std.stdio, consoled;
 
 void main()
 {
-    setConsoleForeground(Color.red);
+    foreground(Color.red);
     writeln("foo"); // Fg: Red | Bg: Default
     
-    setConsoleBackground(Color.blue);
+    background(Color.blue);
     writeln("foo"); // Fg: Red | Bg: Blue
     
-    resetConsoleColors(); // Bring back initial state
+    resetColors(); // Bring back initial state
 }
 ```
 
@@ -50,25 +56,25 @@ import std.stdio, consoled;
 
 void main()
 {
-    setConsoleColors(Fg.red, Bg.blue); /// Order does not matter as long parameters are Fg or Bg.
+    setColors(Fg.red, Bg.blue); /// Order does not matter as long parameters are Fg or Bg.
     writeln("foo"); // Color: Red | Bg: Blue
     
-    resetConsoleColors(); // Bring back initial state
+    resetColors(); // Bring back initial state
 }
 ```
 
 
 #### Current Foreground/Background
 
-To get current foreground and background colors, simply call `getConsoleForeground` or `getConsoleBackground`
+To get current foreground and background colors, simply use `foreground` or `background` properties
 
 ```D
 import std.stdio, consoled;
 
 void main()
 {
-    auto currentFg = getConsoleForeground();
-    auto currentBg = getConsoleBackground();
+    auto currentFg = foreground;
+    auto currentBg = background;
 }
 ```
 
@@ -82,9 +88,9 @@ import std.stdio, consoled;
 
 void main()
 {
-    setFontStyle(FontStyle.underline | FontStyle.strikethrough);
+    fontStyle = FontStyle.underline | FontStyle.strikethrough;
     writeln("foo");
-    resetFontStyle(); // Or just setFontStyle(FontStyle.none);
+    resetFontStyle(); // Or just fontStyle = FontStyle.none;
 }
 ```
 
@@ -98,34 +104,32 @@ import std.stdio, consoled;
 void main()
 {
     writecln("Hello ", Fg.blue, "World", Bg.red, "!");
-    resetConsoleColors();
+    resetColors();
 }
 ```
 
 #### Console Size
 
-You can get console size using `getConsoleSize()` which return tuple containg width and height of the console.
+You can get console size using `size` property which return tuple containg width and height of the console.
 
 ```D
 import std.stdio, consoled;
 
 void main()
 {
-    auto size = getConsoleSize();
     writeln(size);
 }
 ```
 
 #### Cursor manipulation
 
-You can set cursor position using `setConsoleCursor()`:
+You can set cursor position using `setCursorPos()`:
 
 ```D
 import std.stdio, consoled;
 
 void main()
 {
-    auto size = getConsoleSize();
     // 6 is half of "insert coin" length.
     setConsoleCursor(size.x / 2 - 6, size.y / 2);
     writeln("Insert coin");
@@ -134,7 +138,7 @@ void main()
 
 #### Clearing the screen
 
-You can clear console screen using `clearConsoleScreen()` function:
+You can clear console screen using `clearScreen()` function:
 
 ```D
 import std.stdio, consoled, core.thread;
@@ -142,20 +146,20 @@ import std.stdio, consoled, core.thread;
 void main()
 {
 	// Fill whole screen with hashes
-    fillArea(ConsolePoint(0, 0), getConsoleSize(), '#');
+    fillArea(ConsolePoint(0, 0), size, '#');
 	
 	// Wait 3 seconds
 	Thread.sleep(dur!"seconds"(3));
 	
 	// Clear the screen
-	clearConsoleScreen();
+	clearScreen();
 }
 ```
 
 
 #### Setting the title
 
-To set console title, use `setConsoleTitle()`:
+To set console title, use `title` property:
 
 
 ```D
@@ -163,20 +167,20 @@ import std.stdio, consoled;
 
 void main()
 {
-	setConsoleTitle("My new title");
+	title = "My new title";
 }
 ```
 
 
 #### Setting exit handler
 
-It is possible to handle some close events, such as Ctrl+C key combination using `addConsoleCloseHandler()`:
+It is possible to handle some close events, such as Ctrl+C key combination using `addCloseHandler()`:
 
 ```D
 import std.stdio, consoled;
 void main()
 {   
-    setConsoleCloseHandler((i){
+    setCloseHandler((i){
         switch(i.type)
         {
             case CloseType.Other:

@@ -1,38 +1,28 @@
 /**
- * ConsoleD
- * 
  * Provides simple API for coloring and formatting text in terminal.
- * On Windows OS it uses SetConsoleAttribute functions family,
- * On POSIX systems it uses ANSI codes.
+ * On Windows OS it uses WinAPI functions, on POSIX systems it uses mainly ANSI codes.
  * 
- * Important notes:
- *  - Font styles have no effect on windows platform.
- *  - Light background colors are not supported. Non-light equivalents are used on Posix platforms.
- * 
- * Examples:
- * ------
- * import std.stdio, consoled;
- * void main()
- * {
- *     setConsoleForeground(Color.Red);
- *     setConsoleBackground(Color.Blue);
- *     writeln("Red text with blue background");
- *     resetConsoleColors();
- * }
- * ------
+ * $(B Important notes):
+ * $(UL
+ *  $(LI Font styles have no effect on windows platform.)
+ *  $(LI Light background colors are not supported. Non-light equivalents are used on Posix platforms.)
+ * )
  * 
  * License: <a href="http://www.boost.org/LICENSE_1_0.txt">Boost License</a>
  * Authors: <a href="http://github.com/robik">Robert 'Robik' Pasiński</a>
  */
 module consoled;
 
-import std.typecons;
+import std.typecons, std.algorithm;
 
 
 /// Console output stream
 enum ConsoleOutputStream
 {
+    /// Standard output
     stdout,
+    
+    /// Standard error output
     stderr
 }
 
@@ -74,6 +64,36 @@ enum CloseType
 }
 
 /**
+ * Console input mode
+ */
+struct ConsoleInputMode
+{
+    /// Echo printed characters?
+    bool echo = true;
+    
+    /// Enable line buffering?
+    bool line = true;
+    
+    /**
+     * Creates new ConsoleInputMode instance
+     * 
+     * Params:
+     *  e = Echo printed characters?
+     *  l = Use Line buffering?
+     */
+    this(bool e, bool l)
+    {
+        echo = e;
+        line = l;
+    }
+    
+    /**
+     * Console input mode with no feature enabled
+     */
+    static ConsoleInputMode None = ConsoleInputMode(false, false);
+}
+
+/**
  * Represents point in console.
  */
 alias Tuple!(int, "x", int, "y") ConsolePoint;
@@ -85,7 +105,7 @@ version(Windows)
     private enum BG_MASK = 0xf0;
     private enum FG_MASK = 0x0f;
     
-    import core.sys.windows.windows, std.algorithm, std.stdio, std.string;
+    import core.sys.windows.windows, std.stdio, std.string;
 
     ///
     enum Color : ushort
@@ -102,7 +122,7 @@ version(Windows)
         gray         = 8,  /// The gray color.
         lightBlue    = 9,  /// The light blue color.
         lightGreen   = 10, /// The light green color.
-        lightCyan    = 11, /// The light cyan color.(light blue-green)
+        lightCyan    = 11, /// The light cyan color. (light blue-green)
         lightRed     = 12, /// The light red color.
         lightMagenta = 13, /// The light magenta color. (pink)
         lightYellow  = 14, /// The light yellow color.
@@ -117,7 +137,6 @@ version(Windows)
     {
         CONSOLE_SCREEN_BUFFER_INFO info;
         HANDLE hConsole = null, hInput = null;
-        ConsolePoint cursorPos;
         
         Color fg, bg, defFg, defBg;
         void function(CloseEvent)[] closeHandlers;
@@ -127,7 +146,6 @@ version(Windows)
     shared static this()
     {
         loadDefaultColors(ConsoleOutputStream.stdout);
-        cursorPos = ConsolePoint(info.dwCursorPosition.X, info.dwCursorPosition.Y);
         SetConsoleCtrlHandler(cast(PHANDLER_ROUTINE)&defaultCloseHandler, true);
     }
     
@@ -186,7 +204,7 @@ version(Windows)
      * Returns:
      *  Current foreground color set
      */
-    Color getConsoleForeground()
+    Color foreground() @property 
     {
         return fg;
     }
@@ -197,7 +215,7 @@ version(Windows)
      * Returns:
      *  Current background color set
      */
-    Color getConsoleBackground()
+    Color background() @property
     {
         return bg;
     }
@@ -210,7 +228,7 @@ version(Windows)
      * Params:
      *  color = Foreground color to set
      */
-    void setConsoleForeground(Color color)
+    void foreground(Color color) @property 
     {
         fg = color;
         updateColor();
@@ -225,7 +243,7 @@ version(Windows)
      * Params:
      *  color = Background color to set
      */
-    void setConsoleBackground(Color color)
+    void background(Color color) @property 
     {
         bg = color;
         updateColor();
@@ -240,7 +258,7 @@ version(Windows)
      * Params:
      *  cos = New console output stream
      */
-    void setConsoleStream(ConsoleOutputStream cos)
+    void outputStream(ConsoleOutputStream cos) @property
     {
         loadDefaultColors(cos);
     }
@@ -253,7 +271,18 @@ version(Windows)
      * Params:
      *  fs = Font style to set
      */
-    void setFontStyle(FontStyle fs) {}
+    void fontStyle(FontStyle fs) @property {}
+    
+    /**
+     * Returns console font style
+     * 
+     * Returns:
+     *  Font style, always none on windows.
+     */
+    FontStyle fontStyle() @property
+    {
+        return FontStyle.none;
+    }
     
     
     /**
@@ -262,7 +291,7 @@ version(Windows)
      * Returns:
      *  Tuple containing console rows and cols.
      */
-    ConsolePoint getConsoleSize()
+    ConsolePoint size() @property 
     {
         GetConsoleScreenBufferInfo( hConsole, &info );
         
@@ -281,10 +310,10 @@ version(Windows)
      *  x = X coordinate of cursor postion
      *  y = Y coordinate of cursor position
      */
-    void setConsoleCursor(int x, int y)
+    void setCursorPos(int x, int y)
     {
         COORD coord = {
-            cast(short)min(getConsoleWidth(), max(0, x)), 
+            cast(short)min(width, max(0, x)), 
             cast(short)max(0, y)
         };
         
@@ -297,13 +326,38 @@ version(Windows)
      * Returns:
      *  Cursor position
      */
-    ConsolePoint getConsoleCursor()
+    ConsolePoint cursorPos() @property
     {
         GetConsoleScreenBufferInfo( hConsole, &info );
         return ConsolePoint(
             info.dwCursorPosition.X, 
-            min(info.dwCursorPosition.Y, getConsoleHeight) // To keep same behaviour with posix
+            min(info.dwCursorPosition.Y, height) // To keep same behaviour with posix
         );
+    }
+    
+    
+    
+    /**
+     * Sets console title
+     * 
+     * Params:
+     *  title = Title to set
+     */
+    void title(string title) @property
+    {
+        SetConsoleTitleA(toStringz(title));
+    }
+    
+    
+    /**
+     * Adds handler for console close event.
+     * 
+     * Params:
+     *  closeHandler = New close handler
+     */
+    void addCloseHandler(void function(CloseEvent) closeHandler)
+    {
+        closeHandlers ~= closeHandler;
     }
     
     /**
@@ -313,52 +367,89 @@ version(Windows)
      *  x = X offset
      *  y = Y offset
      */
-    void move(int x, int y)
+    private void moveCursor(int x, int y)
     {
         stdout.flush();
-        auto pos = getConsoleCursor();
-        setConsoleCursor(max(pos.x + x, 0), max(0, pos.y + y));
+        auto pos = cursorPos();
+        setCursorPos(max(pos.x + x, 0), max(0, pos.y + y));
+    }
+
+    /**
+     * Moves cursor up by n rows
+     * 
+     * Params:
+     *  n = Number of rows to move
+     */
+    void moveCursorUp(int n = 1)
+    {
+        moveCursor(0, -n);
+    }
+
+    /**
+     * Moves cursor down by n rows
+     * 
+     * Params:
+     *  n = Number of rows to move
+     */
+    void moveCursorDown(int n = 1)
+    {
+        moveCursor(0, n);
+    }
+
+    /**
+     * Moves cursor left by n columns
+     * 
+     * Params:
+     *  n = Number of columns to move
+     */
+    void moveCursorLeft(int n = 1)
+    {
+        moveCursor(-n, 0);
+    }
+
+    /**
+     * Moves cursor right by n columns
+     * 
+     * Params:
+     *  n = Number of columns to move
+     */
+    void moveCursorRight(int n = 1)
+    {
+        moveCursor(n, 0);
     }
     
     /**
-     * Sets console title
+     * Gets console mode
      * 
-     * Params:
-     *  title = Title to set
+     * Returns:
+     *  Current console mode
      */
-    void setConsoleTitle(string title)
+    ConsoleInputMode mode() @property
     {
-        SetConsoleTitleA(toStringz(title));
-    }
-    
-    /**
-     * Reads character without line buffering
-     * 
-     * Params:
-     *  echo = Print typed characters
-     */
-    int getCharacter(bool echo = false)
-    {
-        int c;
-        DWORD state;
+        ConsoleInputMode cim;
+        DWORD m;
+        GetConsoleMode(hInput, &m);
         
-        GetConsoleMode(hInput, &state);
-        SetConsoleMode(hInput, 0);        
-        c = getchar();
-        SetConsoleMode(hInput, state);
+        cim.echo  = !!(m & ENABLE_ECHO_INPUT);
+        cim.line  = !!(m & ENABLE_LINE_INPUT);
         
-        return c;
+        return cim;
     }
     
     /**
-     * Adds handler for console close event.
+     * Sets console mode
      * 
      * Params:
-     *  closeHandler = New close handler
+     *  New console mode
      */
-    void addConsoleCloseHandler(void function(CloseEvent) closeHandler)
+    void mode(ConsoleInputMode cim) @property
     {
-        closeHandlers ~= closeHandler;
+        DWORD m;
+        
+        (cim.echo) ? (m |= ENABLE_ECHO_INPUT) : (m &= ~ENABLE_ECHO_INPUT);
+        (cim.line) ? (m |= ENABLE_LINE_INPUT) : (m &= ~ENABLE_LINE_INPUT);
+        
+        SetConsoleMode(hInput, m);
     }
     
     private CloseEvent idToCloseEvent(ulong i)
@@ -449,7 +540,7 @@ else version(Posix)
         Color fg = Color.initial;
         Color bg = Color.initial;
         File stream;
-        FontStyle fontStyle;
+        FontStyle currentFontStyle;
         
         void function(CloseEvent)[] closeHandlers;
     }
@@ -475,8 +566,8 @@ else version(Posix)
             fg & ~Color.bright,
             bg & ~Color.bright + 10, // Background colors are normal + 10
             
-            fontStyle & FontStyle.underline     ? UNDERLINE_ENABLE : UNDERLINE_DISABLE,
-            fontStyle & FontStyle.strikethrough ? STRIKE_ENABLE    : STRIKE_DISABLE
+            currentFontStyle & FontStyle.underline     ? UNDERLINE_ENABLE : UNDERLINE_DISABLE,
+            currentFontStyle & FontStyle.strikethrough ? STRIKE_ENABLE    : STRIKE_DISABLE
         );        
     }
     
@@ -486,7 +577,7 @@ else version(Posix)
      * Params:
      *  color = Foreground color to set
      */
-    void setConsoleForeground(Color color)
+    void foreground(Color color) @property
     {
         if(isRedirected()) {
             return;
@@ -502,7 +593,7 @@ else version(Posix)
      * Params:
      *  color = Background color to set
      */
-    void setConsoleBackground(Color color)
+    void background(Color color) @property
     {
         if(isRedirected()) {
             return;
@@ -518,7 +609,7 @@ else version(Posix)
      * Returns:
      *  Current foreground color set
      */
-    Color getConsoleForeground()
+    Color foreground() @property
     {
         return fg;
     }
@@ -529,7 +620,7 @@ else version(Posix)
      * Returns:
      *  Current background color set
      */
-    Color getConsoleBackground()
+    Color background() @property
     {
         return bg;
     }
@@ -540,7 +631,7 @@ else version(Posix)
      * Params:
      *  cos = New console output stream
      */
-    void setConsoleStream(ConsoleOutputStream cos)
+    void outputStream(ConsoleOutputStream cos) @property
     {
         if(cos == ConsoleOutputStream.stdout) {
             stream = stdout;
@@ -558,9 +649,9 @@ else version(Posix)
      * Params:
      *  fs = Font style to set
      */
-    void setFontStyle(FontStyle fs)
+    void fontStyle(FontStyle fs) @property
     {
-        fontStyle = fs;
+        currentFontStyle = fs;
         printAnsi();
     }
     
@@ -570,7 +661,7 @@ else version(Posix)
      * Returns:
      *  Tuple containing console rows and cols.
      */
-    ConsolePoint getConsoleSize()
+    ConsolePoint size() @property
     {
         winsize w;
         ioctl(STDOUT_FILENO, TIOCGWINSZ, &w);
@@ -585,7 +676,7 @@ else version(Posix)
      *  x = X coordinate of cursor postion
      *  y = Y coordinate of cursor position
      */
-    void setConsoleCursor(int x, int y)
+    void setCursorPos(int x, int y)
     {
         writef("\033[%d;%df", y + 1, x + 1);
         stdout.flush();
@@ -597,7 +688,7 @@ else version(Posix)
      * Returns:
      *  Cursor position
      */
-    ConsolePoint getConsoleCursor()
+    ConsolePoint cursorPos() @property
     {
         termios told, tnew;
         char[] buf;
@@ -612,7 +703,7 @@ else version(Posix)
         foreach(i; 0..8)
         {
             char c;
-            c = cast(char)getCharacter();
+            c = cast(char)getch();
             buf ~= c;
             if(c == 'R')
                 break;
@@ -626,53 +717,16 @@ else version(Posix)
     }
     
     /**
-     * Moves cursor by specified offset
-     * 
-     * Params:
-     *  x = X offset
-     *  y = Y offset
-     */
-    void move(int x, int y)
-    {
-        writef("\033[%dD", y);
-        writef("\033[%dB", x);
-        stdout.flush();
-    }
-    
-    /**
      * Sets console title
      * 
      * Params:
      *  title = Title to set
      */
-    void setConsoleTitle(string title)
+    void title(string title) @property
     {
-        writef("\033]0;%s\007", title); // TODO: Check if supported
         stdout.flush();
+        writef("\033]0;%s\007", title); // TODO: Check if supported
     }
-    
-    /**
-     * Reads character without line buffering
-     * 
-     * Params:
-     *  echo = Print typed characters
-     */
-    int getCharacter(bool echo = false)
-    {
-        termios told, tnew;
-        int c;
-        
-        tcgetattr(0, &told);
-        tnew = told;
-        tnew.c_lflag &= ~ECHO & ~ICANON;
-        tcsetattr(0, TCSANOW, &tnew);
-        
-        c = getchar();
-        tcsetattr(0, TCSANOW, &told);
-        
-        return c;
-    }
-    
     
     /**
      * Adds handler for console close event.
@@ -680,9 +734,90 @@ else version(Posix)
      * Params:
      *  closeHandler = New close handler
      */
-    void addConsoleCloseHandler(void function(CloseEvent) closeHandler)
+    void addCloseHandler(void function(CloseEvent) closeHandler)
     {
         closeHandlers ~= closeHandler;
+    }
+    
+    /**
+     * Moves cursor up by n rows
+     * 
+     * Params:
+     *  n = Number of rows to move
+     */
+    void moveCursorUp(int n = 1)
+    {
+        writef("\033[%dA", n);
+    }
+
+    /**
+     * Moves cursor down by n rows
+     * 
+     * Params:
+     *  n = Number of rows to move
+     */
+    void moveCursorDown(int n = 1)
+    {
+        writef("\033[%dB", n);
+    }
+
+    /**
+     * Moves cursor left by n columns
+     * 
+     * Params:
+     *  n = Number of columns to move
+     */
+    void moveCursorLeft(int n = 1)
+    {
+        writef("\033[%dD", n);
+    }
+
+    /**
+     * Moves cursor right by n columns
+     * 
+     * Params:
+     *  n = Number of columns to move
+     */
+    void moveCursorRight(int n = 1)
+    {
+        writef("\033[%dC", n);
+    }
+    
+    /**
+     * Gets console mode
+     * 
+     * Returns:
+     *  Current console mode
+     */
+    ConsoleInputMode mode() @property
+    {
+        ConsoleInputMode cim;
+        termios tio;
+        int stdin_fd = fileno(stdin.getFP);
+        
+        tcgetattr(stdin_fd, &tio);
+        cim.echo = !!(tio.c_lflag & ECHO);
+        cim.line = !!(tio.c_lflag & ICANON);
+        
+        return cim;
+    }
+    
+    /**
+     * Sets console mode
+     * 
+     * Params:
+     *  New console mode
+     */
+    void mode(ConsoleInputMode cim) @property
+    {
+        termios tio;
+        int stdin_fd = fileno(stdin.getFP);
+        
+        tcgetattr(stdin_fd, &tio);
+        
+        (cim.echo) ? (tio.c_lflag |= ECHO) : (tio.c_lflag &= ~ECHO);
+        (cim.line) ? (tio.c_lflag |= ICANON) : (tio.c_lflag &= ~ICANON);
+        tcsetattr(stdin_fd, TCSANOW, &tio);
     }
     
     private CloseEvent idToCloseEvent(ulong i)
@@ -727,9 +862,9 @@ else version(Posix)
  * Returns:
  *  Console width as number of columns
  */
-int getConsoleWidth()
+int width()
 {
-    return getConsoleSize().x;
+    return size.x;
 }
 
 /**
@@ -738,53 +873,70 @@ int getConsoleWidth()
  * Returns:
  *  Console height as number of rows
  */
-int getConsoleHeight()
+int height()
 {
-    return getConsoleSize().y;
+    return size.y;
 }
 
 /**
- * Moves cursor up by n rows
+ * Reads character without line buffering
  * 
  * Params:
- *  n = Number of rows to move
+ *  echo = Print typed characters
  */
-void moveUp(int n = 1)
+int getch(bool echo = false)
 {
-    move(0, -n);
+    int c;
+    ConsoleInputMode m;
+    
+    m = mode;
+    mode = ConsoleInputMode(echo, false);
+    c = getchar();
+    mode = ConsoleInputMode(m.echo, m.line);
+    
+    return c;
 }
 
 /**
- * Moves cursor down by n rows
+ * Reads password from user
  * 
  * Params:
- *  n = Number of rows to move
- */
-void moveDown(int n = 1)
-{
-    move(0, n);
-}
-
-/**
- * Moves cursor left by n columns
+ *  mask = Typed character mask
  * 
- * Params:
- *  n = Number of columns to move
+ * Returns:
+ *  Password
  */
-void moveLeft(int n = 1)
+string readPassword(char mask = '*')
 {
-    move(-n, 0);
-}
-
-/**
- * Moves cursor right by n columns
- * 
- * Params:
- *  n = Number of columns to move
- */
-void moveRight(int n = 1)
-{
-    move(n, 0);
+    string pass;
+    int c;
+    
+    version(Windows)
+    {
+        int backspace = 8;
+        int enter = 13;
+    }
+    version(Posix)
+    {
+        int backspace = 127;
+        int enter = 10;
+    }
+    
+    while((c = getch()) != enter)
+    {
+        if(c == backspace) {
+            if(pass.length > 0) {
+                pass = pass[0..$-1];
+                write("\b \b");
+                stdout.flush();
+            }
+        } else {
+            pass ~= cast(char)c;
+            write(mask);
+        }
+    }
+    
+    return pass;
 }
 
 /**
@@ -793,14 +945,14 @@ void moveRight(int n = 1)
  * Params:
  *  params = Colors to set
  */
-void setConsoleColors(T...)(T params)
+void setColors(T...)(T params)
 {
     foreach(param; params)
     {
         static if(is(typeof(param) == Fg)) {
-            setConsoleForeground(param.val);
+            foreground = param.val;
         } else static if(is(typeof(param) == Bg)) {
-            setConsoleBackground(param.val);
+            background = param.val;
         } else {
             static assert(0, "Invalid parameter specified to setConsoleColors");
         }
@@ -814,7 +966,7 @@ void fillArea(ConsolePoint p1, ConsolePoint p2, char fill)
 {
     foreach(i; p1.y .. p2.y)
     {       
-        setConsoleCursor(p1.x, i);
+        setCursorPos(p1.x, i);
         write( std.array.replicate((&fill)[0..1], p2.x - p1.x));
                                 // ^ Converting char to char[]
         stdout.flush();
@@ -839,11 +991,11 @@ void writeAt(T)(ConsolePoint point, T data)
 /**
  * Clears console screen
  */
-void clearConsoleScreen()
+void clearScreen()
 {
-    auto size = getConsoleSize();
+    auto size = size;
     short length = cast(short)(size.x * size.y); // Number of all characters to write
-    setConsoleCursor(0, 0);
+    setCursorPos(0, 0);
     
     write( std.array.replicate(" ", length));
     stdout.flush();
@@ -853,7 +1005,7 @@ void clearConsoleScreen()
 /**
  * Brings default colors back
  */
-void resetConsoleColors()
+void resetColors()
 {
     setConsoleColors(Fg.initial, Bg.initial);
 }
@@ -864,7 +1016,7 @@ void resetConsoleColors()
  */
 void resetFontStyle()
 {
-    setFontStyle(FontStyle.none);
+    fontStyle = FontStyle.none;
 }
 
 
