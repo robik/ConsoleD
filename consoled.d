@@ -564,7 +564,7 @@ else version(Posix)
         stream.writef("\033[%d;%d;%d;%d;%dm",
             fg &  Color.bright ? 1 : 0,            
             fg & ~Color.bright,
-            bg & ~Color.bright + 10, // Background colors are normal + 10
+            (bg & ~Color.bright) + 10, // Background colors are normal + 10
             
             currentFontStyle & FontStyle.underline     ? UNDERLINE_ENABLE : UNDERLINE_DISABLE,
             currentFontStyle & FontStyle.strikethrough ? STRIKE_ENABLE    : STRIKE_DISABLE
