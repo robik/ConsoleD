@@ -14,6 +14,7 @@
 module consoled;
 
 import std.typecons, std.algorithm;
+import std.array : replicate;
 
 
 /// Console output stream
@@ -39,6 +40,7 @@ enum FontStyle
     strikethrough = 2  /// Characters legible, but marked for deletion. Not widely supported.
 }
 
+alias void delegate(CloseEvent) @system CloseHandler;
 
 /**
  * Represents close event.
@@ -78,13 +80,13 @@ struct ConsoleInputMode
      * Creates new ConsoleInputMode instance
      * 
      * Params:
-     *  e = Echo printed characters?
-     *  l = Use Line buffering?
+     *  echo = Echo printed characters?
+     *  line = Use Line buffering?
      */
-    this(bool e, bool l)
+    this(bool echo, bool line)
     {
-        echo = e;
-        line = l;
+        this.echo = echo;
+        this.line = line;
     }
     
     /**
@@ -98,8 +100,25 @@ struct ConsoleInputMode
  */
 alias Tuple!(int, "x", int, "y") ConsolePoint;
 
+/// Special keys
+enum SpecialKey
+{
+    home = 512, /// Home key
+    pageUp,     /// Page Up key
+    pageDown,   /// Page Down key
+    end,        /// End key
+    delete_,    /// Delete key
+    insert,     /// Insert key
+    up,         /// Arrow up key
+    down,       /// Arrow down key
+    left,       /// Arrow left key
+    right,      /// Arrow right key
+    
+    escape = 27,/// Escape key
+    tab = 9,    /// Tab key
+}
 
-//////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////
 version(Windows)
 { 
     private enum BG_MASK = 0xf0;
@@ -136,10 +155,10 @@ version(Windows)
     private __gshared
     {
         CONSOLE_SCREEN_BUFFER_INFO info;
-        HANDLE hConsole = null, hInput = null;
+        HANDLE hOutput = null, hInput = null;
         
         Color fg, bg, defFg, defBg;
-        void function(CloseEvent)[] closeHandlers;
+        CloseHandler[] closeHandlers;
     }
     
     
@@ -162,11 +181,11 @@ version(Windows)
         }
         
         
-        hConsole = GetStdHandle(handle);
+        hOutput  = GetStdHandle(handle);
         hInput   = GetStdHandle(STD_INPUT_HANDLE);
         
         // Get current colors
-        GetConsoleScreenBufferInfo( hConsole, &info );
+        GetConsoleScreenBufferInfo( hOutput, &info );
         
         // Background are first 4 bits
         defBg = cast(Color)((info.wAttributes & (BG_MASK)) >> 4);
@@ -194,7 +213,7 @@ version(Windows)
     private void updateColor()
     {
         stdout.flush();
-        SetConsoleTextAttribute(hConsole, buildColor(fg, bg));
+        SetConsoleTextAttribute(hOutput, buildColor(fg, bg));
     }
     
     
@@ -293,7 +312,7 @@ version(Windows)
      */
     ConsolePoint size() @property 
     {
-        GetConsoleScreenBufferInfo( hConsole, &info );
+        GetConsoleScreenBufferInfo( hOutput, &info );
         
         int cols, rows;
         
@@ -316,8 +335,8 @@ version(Windows)
             cast(short)min(width, max(0, x)), 
             cast(short)max(0, y)
         };
-        
-        SetConsoleCursorPosition(hConsole, coord);
+        stdout.flush();
+        SetConsoleCursorPosition(hOutput, coord);
     }
     
     /**
@@ -328,7 +347,7 @@ version(Windows)
      */
     ConsolePoint cursorPos() @property
     {
-        GetConsoleScreenBufferInfo( hConsole, &info );
+        GetConsoleScreenBufferInfo( hOutput, &info );
         return ConsolePoint(
             info.dwCursorPosition.X, 
             min(info.dwCursorPosition.Y, height) // To keep same behaviour with posix
@@ -355,7 +374,7 @@ version(Windows)
      * Params:
      *  closeHandler = New close handler
      */
-    void addCloseHandler(void function(CloseEvent) closeHandler)
+    void addCloseHandler(CloseHandler closeHandler)
     {
         closeHandlers ~= closeHandler;
     }
@@ -452,6 +471,56 @@ version(Windows)
         SetConsoleMode(hInput, m);
     }
     
+    /**
+     * Reads character without line buffering
+     * 
+     * Params:
+     *  echo = Print typed characters
+     */
+    int getch(bool echo = false)
+    {
+        INPUT_RECORD ir;
+        DWORD count;
+        auto m = mode;
+        
+        mode = ConsoleInputMode.None;
+        
+        do {
+            ReadConsoleInputA(hInput, &ir, 1, &count);
+        } while(ir.EventType != KEY_EVENT || !ir.KeyEvent.bKeyDown);
+        
+        mode = m;
+        
+        return ir.KeyEvent.wVirtualKeyCode;
+    }
+    
+    /**
+     * Checks if any key is pressed.
+     * 
+     * Shift, Ctrl and Alt keys are not detected.
+     * 
+     * Returns:
+     *  True if any key is pressed, false otherwise.
+     */
+    bool kbhit()
+    {
+        return WaitForSingleObject(hInput, 0) == WAIT_OBJECT_0;
+    }
+    
+    /**
+     * Sets cursor visibility
+     * 
+     * Params:
+     *  visible = Cursor visibility
+     */
+    void cursorVisible(bool visible) @property
+    {
+        CONSOLE_CURSOR_INFO cci;
+        GetConsoleCursorInfo(hOutput, &cci);
+        cci.bVisible = visible;
+        SetConsoleCursorInfo(hOutput, &cci);
+    }
+    
     private CloseEvent idToCloseEvent(ulong i)
     {
         CloseEvent ce;
@@ -485,7 +554,7 @@ version(Windows)
         return true;
     }
 }
-///////////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////
 else version(Posix)
 {
     import std.stdio, 
@@ -493,7 +562,9 @@ else version(Posix)
             std.string,
             core.sys.posix.unistd,
             core.sys.posix.sys.ioctl,
-            core.sys.posix.termios;
+            core.sys.posix.termios,
+            core.sys.posix.fcntl,
+            core.sys.posix.sys.time;
     
     enum SIGINT  = 2;
     enum SIGTSTP = 20;
@@ -540,9 +611,11 @@ else version(Posix)
         Color fg = Color.initial;
         Color bg = Color.initial;
         File stream;
+        int stdinFd;
         FontStyle currentFontStyle;
         
-        void function(CloseEvent)[] closeHandlers;
+        CloseHandler[] closeHandlers;
+        SpecialKey[string] specialKeys;
     }
     
     shared static this()
@@ -551,6 +624,23 @@ else version(Posix)
         signal(SIGINT,  &defaultCloseHandler);
         signal(SIGTSTP, &defaultCloseHandler);
         signal(SIGQUIT, &defaultCloseHandler);
+        stdinFd = fileno(stdin.getFP);
+        
+        specialKeys = [
+            "[A" : SpecialKey.up,
+            "[B" : SpecialKey.down,
+            "[C" : SpecialKey.right,
+            "[D" : SpecialKey.left,
+            
+            "OH" : SpecialKey.home,
+            "[5~": SpecialKey.pageUp,
+            "[6~": SpecialKey.pageDown,
+            "OF" : SpecialKey.end,
+            "[3~": SpecialKey.delete_,
+            "[2~": SpecialKey.insert,
+            
+            "\033":SpecialKey.escape
+        ];
     }
     
     
@@ -678,8 +768,8 @@ else version(Posix)
      */
     void setCursorPos(int x, int y)
     {
-        writef("\033[%d;%df", y + 1, x + 1);
         stdout.flush();
+        writef("\033[%d;%df", y + 1, x + 1);
     }
     
     /**
@@ -695,7 +785,7 @@ else version(Posix)
         
         tcgetattr(0, &told);
         tnew = told;
-        tnew.c_lflag &= ~ECHO & ~CREAD & ~ICANON;
+        tnew.c_lflag &= ~ECHO & ~ICANON;
         tcsetattr(0, TCSANOW, &tnew);
         
         write("\033[6n");
@@ -734,7 +824,7 @@ else version(Posix)
      * Params:
      *  closeHandler = New close handler
      */
-    void addCloseHandler(void function(CloseEvent) closeHandler)
+    void addCloseHandler(CloseHandler closeHandler)
     {
         closeHandlers ~= closeHandler;
     }
@@ -793,9 +883,8 @@ else version(Posix)
     {
         ConsoleInputMode cim;
         termios tio;
-        int stdin_fd = fileno(stdin.getFP);
         
-        tcgetattr(stdin_fd, &tio);
+        tcgetattr(stdinFd, &tio);
         cim.echo = !!(tio.c_lflag & ECHO);
         cim.line = !!(tio.c_lflag & ICANON);
         
@@ -811,13 +900,98 @@ else version(Posix)
     void mode(ConsoleInputMode cim) @property
     {
         termios tio;
-        int stdin_fd = fileno(stdin.getFP);
         
-        tcgetattr(stdin_fd, &tio);
+        tcgetattr(stdinFd, &tio);
         
         (cim.echo) ? (tio.c_lflag |= ECHO) : (tio.c_lflag &= ~ECHO);
         (cim.line) ? (tio.c_lflag |= ICANON) : (tio.c_lflag &= ~ICANON);
-        tcsetattr(stdin_fd, TCSANOW, &tio);
+        tcsetattr(stdinFd, TCSANOW, &tio);
+    }
+    
+    /**
+     * Reads character without line buffering
+     * 
+     * Params:
+     *  echo = Print typed characters
+     */
+    int getch(bool echo = false)
+    {
+        int c;
+        string buf;
+        ConsoleInputMode m;
+        
+        m = mode;
+        mode = ConsoleInputMode(echo, false);
+        c = getchar();
+        
+        if(c == SpecialKey.escape)
+        {
+            while(kbhit())
+            {
+                buf ~= getchar();
+            }
+            writeln(buf);
+            if(buf in specialKeys) {
+                c = specialKeys[buf];
+            } else {
+                c = -1;
+            }
+        }
+        
+        mode = m;
+        
+        return c;
+    }
+    
+    /**
+     * Checks if anykey is pressed.
+     * 
+     * Shift, Ctrl and Alt keys are not detected.
+     * 
+     * Returns:
+     *  True if anykey is pressed, false otherwise.
+     */
+    bool kbhit()
+    {
+        ConsoleInputMode m;
+        int c;
+        int old;
+        
+        m = mode;
+        mode = ConsoleInputMode.None;
+        
+        old = fcntl(STDIN_FILENO, F_GETFL, 0);
+        fcntl(STDIN_FILENO, F_SETFL, old | O_NONBLOCK);
+
+        c = getchar();
+
+        fcntl(STDIN_FILENO, F_SETFL, old);
+        mode = m;
+
+        if(c != EOF)
+        {
+            ungetc(c, stdin.getFP);
+            return true;
+        }
+
+        return false;
+    }
+    
+    /**
+     * Sets cursor visibility
+     * 
+     * Params:
+     *  visible = Cursor visibility
+     */
+    void cursorVisible(bool visible) @property
+    {
+        char c;
+        if(visible)
+            c = 'h';
+        else
+            c = 'l';
+           
+        writef("\033[?25%c", c);
     }
     
     private CloseEvent idToCloseEvent(ulong i)
@@ -878,24 +1052,6 @@ int height()
     return size.y;
 }
 
-/**
- * Reads character without line buffering
- * 
- * Params:
- *  echo = Print typed characters
- */
-int getch(bool echo = false)
-{
-    int c;
-    ConsoleInputMode m;
-    
-    m = mode;
-    mode = ConsoleInputMode(echo, false);
-    c = getchar();
-    mode = ConsoleInputMode(m.echo, m.line);
-    
-    return c;
-}
 
 /**
  * Reads password from user
@@ -960,18 +1116,74 @@ void setColors(T...)(T params)
 }
 
 /**
- * Clears console screen
+ * Fills area with specified character
+ * 
+ * Params:
+ *  p1 = Top-Left corner coordinates of area
+ *  p2 = Bottom-Right corner coordinates of area
+ *  fill = Character to fill area
  */
 void fillArea(ConsolePoint p1, ConsolePoint p2, char fill)
 {
-    foreach(i; p1.y .. p2.y)
+    foreach(i; p1.y .. p2.y + 1)
     {       
         setCursorPos(p1.x, i);
-        write( std.array.replicate((&fill)[0..1], p2.x - p1.x));
+        write( replicate((&fill)[0..1], p2.x - p1.x));
                                 // ^ Converting char to char[]
         stdout.flush();
     }
-    stdout.flush();
+}
+
+/**
+ * Draws box with specified border character
+ * 
+ * Params:
+ *  p1 = Top-Left corner coordinates of box
+ *  p2 = Bottom-Right corner coordinates of box
+ *  fill = Border character
+ */
+void drawBox(ConsolePoint p1, ConsolePoint p2, char border)
+{
+    drawHorizontalLine(p1, p2.x - p1.x, border);
+    foreach(i; p1.y + 1 .. p2.y)
+    {       
+        setCursorPos(p1.x, i);
+        write(border);
+        setCursorPos(p2.x - 1, i);
+        write(border);
+    }
+    drawHorizontalLine(ConsolePoint(p1.x, p2.y), p2.x - p1.x, border);
+}
+
+/**
+ * Draws horizontal line with specified fill character
+ * 
+ * Params:
+ *  pos = Start coordinates
+ *  length = Line width
+ *  border = Border character
+ */
+void drawHorizontalLine(ConsolePoint pos, int length, char border)
+{
+    setCursorPos(pos.x, pos.y);
+    write(replicate((&border)[0..1], length));
+}
+
+/**
+ * Draws horizontal line with specified fill character
+ * 
+ * Params:
+ *  pos = Start coordinates
+ *  length = Line height
+ *  border = Border character
+ */
+void drawVerticalLine(ConsolePoint pos, int length, char border)
+{
+    foreach(i; pos.y .. length)
+    {
+        setCursorPos(pos.x, i);
+        write(border);
+    }
 }
 
 /**
@@ -1007,7 +1219,7 @@ void clearScreen()
  */
 void resetColors()
 {
-    setConsoleColors(Fg.initial, Bg.initial);
+    setColors(Fg.initial, Bg.initial);
 }
 
 
