@@ -701,7 +701,8 @@ struct RealTimeConsoleInput {
 			n.c_lflag &= ~f;
 			tcsetattr(fd, TCSANOW, &n);
 
-			destructor ~= { tcsetattr(fd, TCSANOW, &old); };
+			// some weird bug breaks this, https://github.com/robik/ConsoleD/issues/3
+			//destructor ~= { tcsetattr(fd, TCSANOW, &old); };
 
 			if(flags & ConsoleInputFlags.mouse) {
 				if(terminal.terminalInFamily("xterm", "rxvt", "screen", "linux")) {
@@ -726,6 +727,9 @@ struct RealTimeConsoleInput {
 	}
 
 	~this() {
+		// the delegate thing doesn't actually work for this... for some reason
+		version(Posix)
+			tcsetattr(fd, TCSANOW, &old);
 		// we're just undoing everything the constructor did, in reverse order, same criteria
 		foreach_reverse(d; destructor)
 			d();
