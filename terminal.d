@@ -1,6 +1,10 @@
 // parts of this were taken from Robik's ConsoleD
 // https://github.com/robik/ConsoleD/blob/master/consoled.d
 
+// Uncomment this line to get a main() to demonstrate this module's
+// capabilities.
+//version = Demo
+
 version(Windows) {
 	import core.sys.windows.windows;
 	import std.string : toStringz;
@@ -1258,6 +1262,7 @@ struct InputEvent {
 	}
 }
 
+version(Demo)
 void main() {
 	auto terminal = Terminal(ConsoleOutputType.cellular);
 
