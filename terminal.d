@@ -183,7 +183,7 @@ an|ansi|ansi-bbs|ANSI terminals (emulators):\
 
 enum Bright = 0x08;
 
-/// available colors
+/// Defines the list of standard colors understood by Terminal.
 enum Color : ushort {
 	black = 0, /// .
 	red = RED_BIT, /// .
@@ -203,7 +203,7 @@ enum ConsoleInputFlags {
 	paste = 4, /// capture paste events (note: without this, paste can come through as keystrokes)
 }
 
-/// Used in the Terminal constructor...
+/// Defines how terminal output should be handled.
 enum ConsoleOutputType {
 	linear = 0, /// do you want output to work one line at a time?
 	cellular = 1, /// or do you want access to the terminal screen as a grid of characters?
@@ -219,8 +219,10 @@ enum ForceOption {
 
 // we could do it with termcap too, getenv("TERMCAP") then split on : and replace \E with \033 and get the pieces
 
-/// the core for terminal access
-/// NOTE: do not write out escape sequences to the terminal. This won't work on Windows and will confuse Terminal's internal state on Posix.
+/// Encapsulates the I/O capabilities of a terminal.
+///
+/// Warning: do not write out escape sequences to the terminal. This won't work
+/// on Windows and will confuse Terminal's internal state on Posix.
 struct Terminal {
 	@disable this();
 	@disable this(this);
@@ -835,6 +837,9 @@ struct ConsoleBuffer {
 }
 +/
 
+/**
+ * Encapsulates the stream of input events received from the terminal input.
+ */
 struct RealTimeConsoleInput {
 	@disable this();
 	@disable this(this);
