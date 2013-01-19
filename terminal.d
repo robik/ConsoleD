@@ -120,7 +120,7 @@ vs|xterm|xterm-color|vs100|xterm terminal emulator (X Window System):\
 
 
 #rxvt, added by me
-rxvt:\
+rxvt|rxvt-unicode:\
 	:am:bs:mi@:km:co#80:li#55:\
 	:im@:ei@:\
 	:ct=\E[3k:ue=\E[m:\
