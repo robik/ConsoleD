@@ -635,6 +635,17 @@ struct Terminal {
 			WriteConsoleA(hConsole, s.ptr, s.length, &written, null);
 		}
 	}
+
+	/// Clears the screen.
+	void clear() {
+		version(Posix) {
+			doTermcap("cl");
+		} else version(Windows) {
+			// TBD: copy the code from here and test it:
+			// http://support.microsoft.com/kb/99261
+			assert(0, "clear not yet implemented");
+		}
+	}
 }
 
 struct RealTimeConsoleInput {
