@@ -1,3 +1,8 @@
+/**
+ * Module for supporting cursor and color manipulation on the console.
+ */
+module terminal;
+
 // parts of this were taken from Robik's ConsoleD
 // https://github.com/robik/ConsoleD/blob/master/consoled.d
 
@@ -504,6 +509,10 @@ struct Terminal {
 	}
 
 	version(Posix)
+	/**
+	 * Constructs an instance of Terminal representing the capabilities of
+	 * the current terminal.
+	 */
 	this(ConsoleOutputType type) {
 		readTermcap();
 
@@ -518,6 +527,7 @@ struct Terminal {
 		HANDLE hConsole;
 
 	version(Windows)
+	/// ditto
 	this(ConsoleOutputType type) {
 		hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
 	}
