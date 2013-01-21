@@ -735,6 +735,24 @@ struct RealTimeConsoleInput {
 
 			terminal.flush();
 		}
+
+
+		version(with_eventloop) {
+			import arsd.eventloop;
+			version(Windows)
+				auto listenTo = inputHandle;
+			else version(Posix)
+				auto listenTo = this.fd;
+			else static assert(0, "idk about this OS");
+
+			addFileEventListeners(listenTo, (OsFileHandle fd) {
+				auto queue = readNextEvents();
+				foreach(event; queue)
+					send(event);
+			}, null, null);
+
+			destructor ~= { removeFileEventListeners(listenTo); };
+		}
 	}
 
 	~this() {
@@ -1289,16 +1307,21 @@ void main() {
 	int centerX = terminal.width / 2;
 	int centerY = terminal.height / 2;
 
-	loop: while(true) {
-		auto event = input.nextEvent();
+	bool timeToBreak = false;
 
+	void handleEvent(InputEvent event) {
 		terminal.writef("%s\n", event.type);
 		final switch(event.type) {
 			case InputEvent.Type.CharacterEvent:
 				auto ev = event.get!(InputEvent.Type.CharacterEvent);
 				terminal.writef("\t%s\n", ev);
-				if(ev.character == 'Q')
-					break loop;
+				if(ev.character == 'Q') {
+					timeToBreak = true;
+					version(with_eventloop) {
+						import arsd.eventloop;
+						exit();
+					}
+				}
 			break;
 			case InputEvent.Type.NonCharacterKeyEvent:
 				terminal.writef("\t%s\n", event.get!(InputEvent.Type.NonCharacterKeyEvent));
@@ -1324,6 +1347,19 @@ void main() {
 		}
 		usleep(10000);
 		*/
+	}
+
+	version(with_eventloop) {
+		import arsd.eventloop;
+		addListener(&handleEvent);
+		loop();
+	} else {
+		loop: while(true) {
+			auto event = input.nextEvent();
+			handleEvent(event);
+			if(timeToBreak)
+				break loop;
+		}
 	}
 }
 
