@@ -271,7 +271,7 @@ struct Terminal {
 					handleTermcapLine(line);
 				}
 			} else {
-				foreach(line; File("/etc/termcap").byLine) {
+				foreach(line; File("/etc/termcap").byLine()) {
 					handleTermcapLine(line);
 				}
 			}
@@ -601,11 +601,11 @@ struct Terminal {
 		}
 	}
 
-	int width() {
+	@property int width() {
 		return getSize()[0];
 	}
 
-	int height() {
+	@property int height() {
 		return getSize()[1];
 	}
 
@@ -1245,7 +1245,7 @@ struct InputEvent {
 
 	@property Type type() { return t; }
 
-	auto get(Type T)() {
+	@property auto get(Type T)() {
 		if(type != T)
 			throw new Exception("Wrong event type");
 		static if(T == Type.CharacterEvent)
