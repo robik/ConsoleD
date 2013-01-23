@@ -182,31 +182,35 @@ an|ansi|ansi-bbs|ANSI terminals (emulators):\
 
 enum Bright = 0x08;
 
+/// available colors
 enum Color : ushort {
-	black = 0,
-	red = RED_BIT,
-	green = GREEN_BIT,
-	yellow = red | green,
-	blue = BLUE_BIT,
-	magenta = red | blue,
-	cyan = blue | green,
-	white = red | green | blue
+	black = 0, /// .
+	red = RED_BIT, /// .
+	green = GREEN_BIT, /// .
+	yellow = red | green, /// .
+	blue = BLUE_BIT, /// .
+	magenta = red | blue, /// .
+	cyan = blue | green, /// .
+	white = red | green | blue /// .
 }
 
+/// When capturing input, what events are you interested in?
 enum ConsoleInputFlags {
-	raw = 0,
-	echo = 1,
-	mouse = 2,
-	paste = 4,
+	raw = 0, /// raw input returns keystrokes immediately, without line buffering
+	echo = 1, /// do you want to automatically echo input back to the user?
+	mouse = 2, /// capture mouse events
+	paste = 4, /// capture paste events (note: without this, paste can come through as keystrokes)
 }
 
+/// Used in the Terminal constructor...
 enum ConsoleOutputType {
-	linear = 0,
-	cellular = 1,
+	linear = 0, /// do you want output to work one line at a time?
+	cellular = 1, /// or do you want access to the terminal screen as a grid of characters?
 }
 
 // we could do it with termcap too, getenv("TERMCAP") then split on : and replace \E with \033 and get the pieces
 
+/// the core for terminal access
 struct Terminal {
 	@disable this();
 	@disable this(this);
@@ -513,6 +517,7 @@ struct Terminal {
 		reset();
 	}
 
+	/// Changes the current color. It takes see enum Color for the values
 	void color(int foreground, int background) {
 		version(Windows) {
 			// assuming a dark background on windows, so LowContrast == dark which means the bit is NOT set on hardware
@@ -543,6 +548,7 @@ struct Terminal {
 		}
 	}
 
+	/// Returns the terminal to normal output colors
 	void reset() {
 		version(Windows)
 			SetConsoleTextAttribute(
@@ -554,21 +560,22 @@ struct Terminal {
 
 	// FIXME: add moveRelative
 
-	version(Posix)
+	/// Moves the output cursor to the given position. (0, 0) is the upper left corner of the screen
 	void moveTo(int x, int y) {
-		doTermcap("cm", y, x);
+		version(Posix)
+			doTermcap("cm", y, x);
+		else version(Windows) {
+			COORD coord = {cast(short) x, cast(short) y};
+			SetConsoleCursorPosition(hConsole, coord);
+		} else static assert(0);
 	}
 
-	version(Windows)
-	void moveTo(int x, int y) {
-		COORD coord = {cast(short) x, cast(short) y};
-		SetConsoleCursorPosition(hConsole, coord);
-	}
-
+	/// Gets real time input, disabling line buffering
 	RealTimeConsoleInput captureInput(ConsoleInputFlags flags) {
 		return RealTimeConsoleInput(&this, flags);
 	}
 
+	/// Changes the terminal's title
 	void setTitle(string t) {
 		version(Windows) {
 			SetConsoleTitleA(toStringz(t));
@@ -578,6 +585,7 @@ struct Terminal {
 		}
 	}
 
+	/// Flushes your updates to the terminal.
 	void flush() {
 		version(Posix)
 			fflush(stdout);
@@ -601,10 +609,12 @@ struct Terminal {
 		}
 	}
 
+	/// The current width of the terminal (the number of columns)
 	@property int width() {
 		return getSize()[0];
 	}
 
+	/// The current height of the terminal (the number of rows)
 	@property int height() {
 		return getSize()[1];
 	}
@@ -618,6 +628,7 @@ struct Terminal {
 	}
 	*/
 
+	/// Writes to the terminal at the current cursor position
 	void writef(T...)(string f, T t) {
 		import std.string;
 		writeString(xformat(f, t));
@@ -627,13 +638,11 @@ struct Terminal {
 		// FIXME: make sure all the data is sent, check for errors
 		version(Posix) {
 			write(0, s.ptr, s.length);
-		}
-
-		version(Windows) {
+		} else version(Windows) {
 			DWORD written;
 			/* FIXME: WriteConsoleW */
 			WriteConsoleA(hConsole, s.ptr, s.length, &written, null);
-		}
+		} else static assert(0);
 	}
 
 	/// Clears the screen.
@@ -764,33 +773,34 @@ struct RealTimeConsoleInput {
 			d();
 	}
 
+	/// Returns true if there is input available now
 	bool kbhit() {
 		return timedCheckForInput(0);
 	}
 
-	version(Windows)
+	/// Check for input, waiting no longer than the number of milliseconds
 	bool timedCheckForInput(int milliseconds) {
-		auto response = WaitForSingleObject(terminal.hConsole, milliseconds);
-		if(response  == 0)
-			return true; // the object is ready
-		return false;
+		version(Windows) {
+			auto response = WaitForSingleObject(terminal.hConsole, milliseconds);
+			if(response  == 0)
+				return true; // the object is ready
+			return false;
+		} else version(Posix) {
+			timeval tv;
+			tv.tv_sec = 0;
+			tv.tv_usec = milliseconds * 1000;
+
+			fd_set fs;
+			FD_ZERO(&fs);
+
+			FD_SET(fd, &fs);
+			select(fd + 1, &fs, null, null, &tv);
+
+			return FD_ISSET(fd, &fs);
+		}
 	}
 
-	version(Posix)
-	bool timedCheckForInput(int milliseconds) {
-		timeval tv;
-		tv.tv_sec = 0;
-		tv.tv_usec = milliseconds * 1000;
-
-		fd_set fs;
-		FD_ZERO(&fs);
-
-		FD_SET(fd, &fs);
-		select(fd + 1, &fs, null, null, &tv);
-
-		return FD_ISSET(fd, &fs);
-	}
-
+	/// Get one character from the terminal
 	char getch() {
 		import core.stdc.stdio;
 		return cast(char) fgetc(stdin);
@@ -846,6 +856,12 @@ struct RealTimeConsoleInput {
 	// paste event
 	// mouse event
 	// size event maybe, and if appropriate focus events
+
+	/// Returns the next event.
+	///
+	/// Experimental: It is also possible to integrate this into
+	/// a generic event loop, currently under -version=with_eventloop and it will
+	/// require the module arsd.eventloop (linux only at this point)
 	InputEvent nextEvent() {
 		if(inputQueue.length) {
 			auto e = inputQueue[0];
@@ -1178,73 +1194,110 @@ struct RealTimeConsoleInput {
 	}
 }
 
+/// Input event for characters
 struct CharacterEvent {
-	enum Type { Pressed, Released }
+	/// .
+	enum Type {
+		Released, /// .
+		Pressed /// .
+	}
 
-	Type eventType;
-	dchar character;
-	uint modifierState;
+	Type eventType; /// .
+	dchar character; /// .
+	uint modifierState; /// .
 }
 
 struct NonCharacterKeyEvent {
-	enum Type { Pressed, Released}
-	Type eventType;
+	/// .
+	enum Type {
+		Released, /// .
+		Pressed /// .
+	}
+	Type eventType; /// .
 
 	// these match Windows virtual key codes numerically for simplicity of translation there
 	//http://msdn.microsoft.com/en-us/library/windows/desktop/dd375731%28v=vs.85%29.aspx
+	/// .
 	enum Key : int {
-		escape = 0x1b,
-		F1 = 0x70,
-		F2 = 0x71,
-		F3 = 0x72,
-		F4 = 0x73,
-		F5 = 0x74,
-		F6 = 0x75,
-		F7 = 0x76,
-		F8 = 0x77,
-		F9 = 0x78,
-		F10 = 0x79,
-		F11 = 0x7A,
-		F12 = 0x7B,
-		LeftArrow = 0x25,
-		RightArrow = 0x27,
-		UpArrow = 0x26,
-		DownArrow = 0x28,
-		Insert = 0x2d,
-		Delete = 0x2e,
-		Home = 0x24,
-		End = 0x23,
-		PageUp = 0x21,
-		PageDown = 0x22,
+		escape = 0x1b, /// .
+		F1 = 0x70, /// .
+		F2 = 0x71, /// .
+		F3 = 0x72, /// .
+		F4 = 0x73, /// .
+		F5 = 0x74, /// .
+		F6 = 0x75, /// .
+		F7 = 0x76, /// .
+		F8 = 0x77, /// .
+		F9 = 0x78, /// .
+		F10 = 0x79, /// .
+		F11 = 0x7A, /// .
+		F12 = 0x7B, /// .
+		LeftArrow = 0x25, /// .
+		RightArrow = 0x27, /// .
+		UpArrow = 0x26, /// .
+		DownArrow = 0x28, /// .
+		Insert = 0x2d, /// .
+		Delete = 0x2e, /// .
+		Home = 0x24, /// .
+		End = 0x23, /// .
+		PageUp = 0x21, /// .
+		PageDown = 0x22, /// .
 		}
-	Key key;
+	Key key; /// .
 
-	uint modifierState;
+	uint modifierState; /// .
 
 }
 
+/// .
 struct PasteEvent {
-	string pastedText;
+	string pastedText; /// .
 }
 
+/// .
 struct MouseEvent {
-	enum Type { Pressed, Released, Clicked, Moved }
-	Type eventType;
+	/// .
+	enum Type {
+		Released, /// .
+		Pressed, /// .
+		Clicked, /// .
+		Moved /// .
+	}
 
-	enum Button : uint { None = 0, Left = 1, Middle = 4, Right = 2, ScrollUp = 8, ScrollDown = 16 }
-	uint buttons;
-	int x;
-	int y;
-	uint modifierState; // shift, ctrl, alt, meta, altgr
+	Type eventType; /// .
+
+	/// .
+	enum Button : uint {
+		None = 0, /// .
+		Left = 1, /// .
+		Middle = 4, /// .
+		Right = 2, /// .
+		ScrollUp = 8, /// .
+		ScrollDown = 16 /// .
+	}
+	uint buttons; /// A mask of Button
+	int x; /// 0 == left side
+	int y; /// 0 == top
+	uint modifierState; /// shift, ctrl, alt, meta, altgr
 }
 
 interface CustomEvent {}
 
+/// GetNextEvent returns this. Check the type, then use get to get the more detailed input
 struct InputEvent {
-	enum Type { CharacterEvent, NonCharacterKeyEvent, PasteEvent, MouseEvent, CustomEvent }
+	/// .
+	enum Type {
+		CharacterEvent, ///.
+		NonCharacterKeyEvent, /// .
+		PasteEvent, /// .
+		MouseEvent, /// .
+		CustomEvent
+	}
 
+	/// .
 	@property Type type() { return t; }
 
+	/// .
 	@property auto get(Type T)() {
 		if(type != T)
 			throw new Exception("Wrong event type");
