@@ -968,6 +968,8 @@ struct RealTimeConsoleInput {
 
 			addFileEventListeners(listenTo, &eventListener, null, null);
 			destructor ~= { removeFileEventListeners(listenTo); };
+			addOnIdle(&terminal.flush);
+			destructor ~= { removeOnIdle(&terminal.flush); };
 		}
 	}
 
@@ -1616,7 +1618,6 @@ void main() {
 		}
 
 		terminal.writefln("%d %d", terminal.cursorX, terminal.cursorY);
-		terminal.flush();
 
 		/*
 		if(input.kbhit()) {
@@ -1634,7 +1635,6 @@ void main() {
 	version(with_eventloop) {
 		import arsd.eventloop;
 		addListener(&handleEvent);
-		terminal.flush();
 		loop();
 	} else {
 		loop: while(true) {
