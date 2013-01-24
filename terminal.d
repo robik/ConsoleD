@@ -632,10 +632,15 @@ struct Terminal {
 		_cursorY = y;
 	}
 
+	/*
+	// alas this doesn't work due to a bunch of delegate context pointer and postblit problems
+	// instead of using: auto input = terminal.captureInput(flags)
+	// use: auto input = RealTimeConsoleInput(&terminal, flags);
 	/// Gets real time input, disabling line buffering
 	RealTimeConsoleInput captureInput(ConsoleInputFlags flags) {
 		return RealTimeConsoleInput(&this, flags);
 	}
+	*/
 
 	/// Changes the terminal's title
 	void setTitle(string t) {
@@ -882,7 +887,8 @@ struct RealTimeConsoleInput {
 	private Terminal* terminal;
 	private void delegate()[] destructor;
 
-	private this(Terminal* terminal, ConsoleInputFlags flags) {
+	/// To capture input, you need to provide a terminal and some flags.
+	public this(Terminal* terminal, ConsoleInputFlags flags) {
 		this.flags = flags;
 		this.terminal = terminal;
 
@@ -960,13 +966,17 @@ struct RealTimeConsoleInput {
 				auto listenTo = this.fd;
 			else static assert(0, "idk about this OS");
 
-			addFileEventListeners(listenTo, (OsFileHandle fd) {
-				auto queue = readNextEvents();
-				foreach(event; queue)
-					send(event);
-			}, null, null);
-
+			addFileEventListeners(listenTo, &eventListener, null, null);
 			destructor ~= { removeFileEventListeners(listenTo); };
+		}
+	}
+
+	version(with_eventloop) {
+		import arsd.eventloop;
+		void eventListener(OsFileHandle fd) {
+			auto queue = readNextEvents();
+			foreach(event; queue)
+				send(event);
 		}
 	}
 
@@ -1560,10 +1570,10 @@ struct InputEvent {
 
 version(Demo)
 void main() {
-	auto terminal = Terminal(ConsoleOutputType.cellular);
+	auto terminal = Terminal(ConsoleOutputType.linear);
 
 	terminal.setTitle("Basic I/O");
-	auto input = terminal.captureInput(ConsoleInputFlags.raw | ConsoleInputFlags.mouse | ConsoleInputFlags.paste);
+	auto input = RealTimeConsoleInput(&terminal, ConsoleInputFlags.raw | ConsoleInputFlags.mouse | ConsoleInputFlags.paste);
 
 	terminal.color(Color.green | Bright, Color.black);
 
@@ -1606,6 +1616,7 @@ void main() {
 		}
 
 		terminal.writefln("%d %d", terminal.cursorX, terminal.cursorY);
+		terminal.flush();
 
 		/*
 		if(input.kbhit()) {
@@ -1623,6 +1634,7 @@ void main() {
 	version(with_eventloop) {
 		import arsd.eventloop;
 		addListener(&handleEvent);
+		terminal.flush();
 		loop();
 	} else {
 		loop: while(true) {
