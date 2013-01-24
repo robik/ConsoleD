@@ -18,6 +18,7 @@ version(Windows) {
 version(Posix) {
 	import core.sys.posix.termios;
 	import core.sys.posix.unistd;
+	import unix = core.sys.posix.unistd;
 	import core.sys.posix.sys.types;
 	import core.sys.posix.sys.time;
 	import core.stdc.stdio;
@@ -206,11 +207,20 @@ enum ConsoleInputFlags {
 enum ConsoleOutputType {
 	linear = 0, /// do you want output to work one line at a time?
 	cellular = 1, /// or do you want access to the terminal screen as a grid of characters?
+	//truncatedCellular = 3, /// cellular, but instead of wrapping output to the next line automatically, it will truncate at the edges
+}
+
+/// Some methods will try not to send unnecessary commands to the screen. You can override their judgement using a ForceOption parameter, if present
+enum ForceOption {
+	automatic = 0, /// automatically decide what to do (best, unless you know for sure it isn't right)
+	neverSend = -1, /// never send the data. This will only update Terminal's internal state. Use with caution because this can
+	alwaysSend = 1, /// always send the data, even if it doesn't seem necessary
 }
 
 // we could do it with termcap too, getenv("TERMCAP") then split on : and replace \E with \033 and get the pieces
 
 /// the core for terminal access
+/// NOTE: do not write out escape sequences to the terminal. This won't work on Windows and will confuse Terminal's internal state on Posix.
 struct Terminal {
 	@disable this();
 	@disable this(this);
@@ -486,7 +496,7 @@ struct Terminal {
 				}
 			}
 
-			writeString(buffer[0 .. bufferPos]);
+			writeStringRaw(buffer[0 .. bufferPos]);
 			return true;
 		}
 	}
@@ -498,6 +508,7 @@ struct Terminal {
 		this.type = type;
 		if(type == ConsoleOutputType.cellular) {
 			doTermcap("ti");
+			moveTo(0, 0, ForceOption.alwaysSend); // we need to know where the cursor is for some features to work, and moving it is easier than querying it
 		}
 	}
 
@@ -515,37 +526,50 @@ struct Terminal {
 			doTermcap("te");
 		}
 		reset();
+		flush();
 	}
 
+	int _currentForeground = Color.black; // FIXME: this isn't necessarily right
+	int _currentBackground = Color.white;
+
 	/// Changes the current color. It takes see enum Color for the values
-	void color(int foreground, int background) {
-		version(Windows) {
-			// assuming a dark background on windows, so LowContrast == dark which means the bit is NOT set on hardware
-			/*
-			foreground ^= LowContrast;
-			background ^= LowContrast;
-			*/
-			SetConsoleTextAttribute(
-				GetStdHandle(STD_OUTPUT_HANDLE),
-				cast(ushort)((background << 4) | foreground));
-		} else {
-			import std.process;
-			// I started using this envvar for my text editor, but now use it elsewhere too
-			// if we aren't set to dark, assume light
-			/*
-			if(getenv("ELVISBG") == "dark") {
-				// LowContrast on dark bg menas
-			} else {
+	void color(int foreground, int background, ForceOption force = ForceOption.automatic) {
+		if(force != ForceOption.neverSend) {
+			version(Windows) {
+				// assuming a dark background on windows, so LowContrast == dark which means the bit is NOT set on hardware
+				/*
 				foreground ^= LowContrast;
 				background ^= LowContrast;
-			}
-			*/
+				*/
+				SetConsoleTextAttribute(
+					GetStdHandle(STD_OUTPUT_HANDLE),
+					cast(ushort)((background << 4) | foreground));
+			} else {
+				import std.process;
+				// I started using this envvar for my text editor, but now use it elsewhere too
+				// if we aren't set to dark, assume light
+				/*
+				if(getenv("ELVISBG") == "dark") {
+					// LowContrast on dark bg menas
+				} else {
+					foreground ^= LowContrast;
+					background ^= LowContrast;
+				}
+				*/
 
-			writef("\033[%dm\033[3%dm\033[4%dm",
-				(foreground & Bright) ? 1 : 0,
-				cast(int) foreground & ~Bright,
-				cast(int) background & ~Bright);
+				import std.string;
+
+				if(force == ForceOption.alwaysSend || foreground != _currentForeground || background != _currentBackground) {
+					writeStringRaw(xformat("\033[%dm\033[3%dm\033[4%dm",
+						(foreground & Bright) ? 1 : 0,
+						cast(int) foreground & ~Bright,
+						cast(int) background & ~Bright));
+				}
+			}
 		}
+
+		_currentForeground = foreground;
+		_currentBackground = background;
 	}
 
 	/// Returns the terminal to normal output colors
@@ -555,19 +579,37 @@ struct Terminal {
 				GetStdHandle(STD_OUTPUT_HANDLE),
 				cast(ushort)((Color.black << 4) | Color.white));
 		else
-			writef("\033[0m");
+			writeStringRaw("\033[0m");
 	}
 
 	// FIXME: add moveRelative
 
-	/// Moves the output cursor to the given position. (0, 0) is the upper left corner of the screen
-	void moveTo(int x, int y) {
-		version(Posix)
-			doTermcap("cm", y, x);
-		else version(Windows) {
-			COORD coord = {cast(short) x, cast(short) y};
-			SetConsoleCursorPosition(hConsole, coord);
-		} else static assert(0);
+	/// the current x position of the output cursor. 0 == leftmost column
+	@property int cursorX() {
+		return _cursorX;
+	}
+
+	/// the current y position of the output cursor. 0 == topmost row
+	@property int cursorY() {
+		return _cursorY;
+	}
+
+	private int _cursorX;
+	private int _cursorY;
+
+	/// Moves the output cursor to the given position. (0, 0) is the upper left corner of the screen. The force parameter can be used to force an update, even if Terminal doesn't think it is necessary
+	void moveTo(int x, int y, ForceOption force = ForceOption.automatic) {
+		if(force != ForceOption.neverSend && (force == ForceOption.alwaysSend || x != _cursorX || y != _cursorY)) {
+			version(Posix)
+				doTermcap("cm", y, x);
+			else version(Windows) {
+				COORD coord = {cast(short) x, cast(short) y};
+				SetConsoleCursorPosition(hConsole, coord);
+			} else static assert(0);
+		}
+
+		_cursorX = x;
+		_cursorY = y;
 	}
 
 	/// Gets real time input, disabling line buffering
@@ -580,15 +622,26 @@ struct Terminal {
 		version(Windows) {
 			SetConsoleTitleA(toStringz(t));
 		} else {
+			import std.string;
 			if(terminalInFamily("xterm", "rxvt", "screen"))
-				writef("\033]0;%s\007", t);
+				writeStringRaw(xformat("\033]0;%s\007", t));
 		}
 	}
 
 	/// Flushes your updates to the terminal.
+	/// It is important to call this when you are finished writing for now if you are using the version=with_eventloop
 	void flush() {
-		version(Posix)
-			fflush(stdout);
+		version(Posix) {
+			ssize_t written;
+
+			while(writeBuffer.length) {
+				written = unix.write(1 /*this.fd*/, writeBuffer.ptr, writeBuffer.length);
+				if(written < 0)
+					throw new Exception("write failed for some reason");
+				writeBuffer = writeBuffer[written .. $];
+			}
+		}
+		// not buffering right now on Windows, since it probably isn't on ssh anyway
 	}
 
 	int[] getSize() {
@@ -609,35 +662,133 @@ struct Terminal {
 		}
 	}
 
+	void updateSize() {
+		auto size = getSize();
+		_width = size[0];
+		_height = size[1];
+	}
+
+	private int _width;
+	private int _height;
+
 	/// The current width of the terminal (the number of columns)
 	@property int width() {
-		return getSize()[0];
+		if(_width == 0 || _height == 0)
+			updateSize();
+		return _width;
 	}
 
 	/// The current height of the terminal (the number of rows)
 	@property int height() {
-		return getSize()[1];
+		if(_width == 0 || _height == 0)
+			updateSize();
+		return _height;
 	}
 
 	/*
 	void write(T...)(T t) {
-		import std.conv;
 		foreach(arg; t) {
-			writeString(to!string(arg));
+			writeStringRaw(to!string(arg));
 		}
 	}
 	*/
 
 	/// Writes to the terminal at the current cursor position
+	/// uses std.string.xformat for the format string handling
 	void writef(T...)(string f, T t) {
 		import std.string;
-		writeString(xformat(f, t));
+		writePrintableString(xformat(f, t));
 	}
 
-	void writeString(in char[] s) {
+	/// .
+	void writefln(T...)(string f, T t) {
+		writef(f ~ "\n", t);
+	}
+
+	/// .
+	void write(T...)(T t) {
+		import std.conv;
+		string data;
+		foreach(arg; t) {
+			data ~= to!string(arg);
+		}
+
+		writePrintableString(data);
+	}
+
+	/// .
+	void writeln(T...)(T t) {
+		write(t, "\n");
+	}
+
+	/+
+	/// A combined moveTo and writef that puts the cursor back where it was before when it finishes the write.
+	/// Only works in cellular mode. 
+	/// Might give better performance than moveTo/writef because if the data to write matches the internal buffer, it skips sending anything (to override the buffer check, you can use moveTo and writePrintableString with ForceOption.alwaysSend)
+	void writefAt(T...)(int x, int y, string f, T t) {
+		import std.string;
+		auto toWrite = xformat(f, t);
+
+		auto oldX = _cursorX;
+		auto oldY = _cursorY;
+
+		writeAtWithoutReturn(x, y, toWrite);
+
+		moveTo(oldX, oldY);
+	}
+
+	void writeAtWithoutReturn(int x, int y, in char[] data) {
+		moveTo(x, y);
+		writeStringRaw(toWrite, ForceOption.alwaysSend);
+	}
+	+/
+
+	void writePrintableString(in char[] s, ForceOption force = ForceOption.automatic) {
+		// an escape character is going to mess things up. Actually any non-printable character could, but meh
+		// assert(s.indexOf("\033") == -1);
+
+		// tracking cursor position
+		foreach(ch; s) {
+			switch(ch) {
+				case '\n':
+					_cursorX = 0;
+					_cursorY++;
+				break;
+				case '\t':
+					_cursorX ++;
+					_cursorX += _cursorX % 8; // FIXME: get the actual tabstop, if possible
+				break;
+				default:
+					_cursorX++;
+			}
+
+			if(_cursorX >= width) {
+				_cursorX = 0;
+				_cursorY++;
+			}
+
+			if(_cursorY == height)
+				_cursorY--;
+
+			/+
+			auto index = getIndex(_cursorX, _cursorY);
+			if(data[index] != ch) {
+				data[index] = ch;
+			}
+			+/
+		}
+
+		writeStringRaw(s);
+	}
+
+	deprecated alias writePrintableString writeString; /// use write() or writePrintableString instead
+
+	private string writeBuffer;
+
+	private void writeStringRaw(in char[] s) {
 		// FIXME: make sure all the data is sent, check for errors
 		version(Posix) {
-			write(0, s.ptr, s.length);
+			writeBuffer ~= s; // buffer it to do everything at once in flush() calls
 		} else version(Windows) {
 			DWORD written;
 			/* FIXME: WriteConsoleW */
@@ -654,8 +805,35 @@ struct Terminal {
 			// http://support.microsoft.com/kb/99261
 			assert(0, "clear not yet implemented");
 		}
+
+		_cursorX = 0;
+		_cursorY = 0;
 	}
 }
+
+/+
+struct ConsoleBuffer {
+	int cursorX;
+	int cursorY;
+	int width;
+	int height;
+	dchar[] data;
+
+	void actualize(Terminal* t) {
+		auto writer = t.getBufferedWriter();
+
+		this.copyTo(&(t.onScreen));
+	}
+
+	void copyTo(ConsoleBuffer* buffer) {
+		buffer.cursorX = this.cursorX;
+		buffer.cursorY = this.cursorY;
+		buffer.width = this.width;
+		buffer.height = this.height;
+		buffer.data[] = this.data[];
+	}
+}
++/
 
 struct RealTimeConsoleInput {
 	@disable this();
@@ -664,6 +842,10 @@ struct RealTimeConsoleInput {
 	version(Posix) {
 		private int fd;
 		private termios old;
+		ubyte[128] hack;
+		// apparently termios isn't the size druntime thinks it is (at least on 32 bit, sometimes)....
+		// tcgetattr smashed other variables in here too that could create random problems
+		// so this hack is just to give some room for that to happen without destroying the rest of the world
 	}
 
 	version(Windows) {
@@ -726,20 +908,20 @@ struct RealTimeConsoleInput {
 
 			if(flags & ConsoleInputFlags.mouse) {
 				if(terminal.terminalInFamily("xterm", "rxvt", "screen", "linux")) {
-					terminal.writeString("\033[?1000h"); // this is vt200 mouse, supported by xterm and linux + gpm
-					destructor ~= { terminal.writeString("\033[?1000l"); };
+					terminal.writeStringRaw("\033[?1000h"); // this is vt200 mouse, supported by xterm and linux + gpm
+					destructor ~= { terminal.writeStringRaw("\033[?1000l"); };
 				}
 			}
 			if(flags & ConsoleInputFlags.paste) {
 				if(terminal.terminalInFamily("xterm", "rxvt", "screen")) {
-					terminal.writeString("\033[?2004h"); // bracketed paste mode
-					destructor ~= { terminal.writeString("\033[?2004l"); };
+					terminal.writeStringRaw("\033[?2004h"); // bracketed paste mode
+					destructor ~= { terminal.writeStringRaw("\033[?2004l"); };
 				}
 			}
 
 			// try to ensure the terminal is in UTF-8 mode
 			if(terminal.terminalInFamily("xterm", "screen", "linux")) {
-				terminal.writeString("\033%G");
+				terminal.writeStringRaw("\033%G");
 			}
 
 			terminal.flush();
@@ -901,6 +1083,8 @@ struct RealTimeConsoleInput {
 
 	version(Windows)
 	InputEvent[] readNextEvents() {
+		terminal.flush(); // make sure all output is sent out before waiting for anything
+
 		INPUT_RECORD[32] buffer;
 		DWORD actuallyRead;
 			// FIXME: ReadConsoleInputW
@@ -975,6 +1159,8 @@ struct RealTimeConsoleInput {
 
 	version(Posix)
 	InputEvent[] readNextEvents() {
+		terminal.flush(); // make sure all output is sent out before we try to get input
+
 		InputEvent[] charPressAndRelease(dchar character) {
 			return [
 				InputEvent(CharacterEvent(CharacterEvent.Type.Pressed, character, 0)),
@@ -1357,6 +1543,9 @@ void main() {
 
 	terminal.color(Color.green | Bright, Color.black);
 
+	terminal.write("test some long string to see if it wraps or what because i dont really know what it is going to do so i just want to test i think it will wrap but gotta be sure lolololololololol");
+	terminal.writefln("%d %d", terminal.cursorX, terminal.cursorY);
+
 	int centerX = terminal.width / 2;
 	int centerY = terminal.height / 2;
 
@@ -1375,6 +1564,9 @@ void main() {
 						exit();
 					}
 				}
+
+				if(ev.character == 'C')
+					terminal.clear();
 			break;
 			case InputEvent.Type.NonCharacterKeyEvent:
 				terminal.writef("\t%s\n", event.get!(InputEvent.Type.NonCharacterKeyEvent));
@@ -1388,6 +1580,8 @@ void main() {
 			case InputEvent.Type.CustomEvent:
 			break;
 		}
+
+		terminal.writefln("%d %d", terminal.cursorX, terminal.cursorY);
 
 		/*
 		if(input.kbhit()) {
