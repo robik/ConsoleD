@@ -1,5 +1,11 @@
 /**
  * Module for supporting cursor and color manipulation on the console.
+ *
+ * The main interface for this module is the Terminal struct, which
+ * encapsulates the functions of the terminal. Creating an instance of
+ * this struct will perform console initialization; when the struct
+ * goes out of scope, any changes in console settings will be automatically
+ * reverted.
  */
 module terminal;
 
@@ -201,6 +207,8 @@ enum Color : ushort {
 }
 
 /// When capturing input, what events are you interested in?
+///
+/// Note: these flags can be OR'd together to select more than one option at a time.
 enum ConsoleInputFlags {
 	raw = 0, /// raw input returns keystrokes immediately, without line buffering
 	echo = 1, /// do you want to automatically echo input back to the user?
@@ -544,7 +552,7 @@ struct Terminal {
 	int _currentForeground = Color.black; // FIXME: this isn't necessarily right
 	int _currentBackground = Color.white;
 
-	/// Changes the current color. It takes see enum Color for the values
+	/// Changes the current color. See enum Color for the values.
 	void color(int foreground, int background, ForceOption force = ForceOption.automatic) {
 		if(force != ForceOption.neverSend) {
 			version(Windows) {
@@ -596,12 +604,12 @@ struct Terminal {
 
 	// FIXME: add moveRelative
 
-	/// the current x position of the output cursor. 0 == leftmost column
+	/// The current x position of the output cursor. 0 == leftmost column
 	@property int cursorX() {
 		return _cursorX;
 	}
 
-	/// the current y position of the output cursor. 0 == topmost row
+	/// The current y position of the output cursor. 0 == topmost row
 	@property int cursorY() {
 		return _cursorY;
 	}
@@ -705,19 +713,20 @@ struct Terminal {
 	}
 	*/
 
-	/// Writes to the terminal at the current cursor position
-	/// uses std.string.xformat for the format string handling
+	/// Writes to the terminal at the current cursor position.
+	///
+	/// Uses std.string.xformat for the format string handling.
 	void writef(T...)(string f, T t) {
 		import std.string;
 		writePrintableString(xformat(f, t));
 	}
 
-	/// .
+	/// ditto
 	void writefln(T...)(string f, T t) {
 		writef(f ~ "\n", t);
 	}
 
-	/// .
+	/// ditto
 	void write(T...)(T t) {
 		import std.conv;
 		string data;
@@ -728,7 +737,7 @@ struct Terminal {
 		writePrintableString(data);
 	}
 
-	/// .
+	/// ditto
 	void writeln(T...)(T t) {
 		write(t, "\n");
 	}
@@ -1058,7 +1067,7 @@ struct RealTimeConsoleInput {
 	///
 	/// Experimental: It is also possible to integrate this into
 	/// a generic event loop, currently under -version=with_eventloop and it will
-	/// require the module arsd.eventloop (linux only at this point)
+	/// require the module arsd.eventloop (Linux only at this point)
 	InputEvent nextEvent() {
 		if(inputQueue.length) {
 			auto e = inputQueue[0];
