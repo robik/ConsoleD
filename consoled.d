@@ -541,7 +541,7 @@ version(Windows)
                 ce.type = CloseType.Other;
         }
         
-        ce.isBlockable = (ce.type == CloseType.Other) ? false : true;
+        ce.isBlockable = (ce.type != CloseType.Other);
         
         return ce;
     }
@@ -1018,7 +1018,7 @@ else version(Posix)
                 ce.type = CloseType.Other;
         }
         
-        ce.isBlockable = (ce.type == CloseType.Other) ? false : true;
+        ce.isBlockable = (ce.type != CloseType.Other);
         
         return ce;
     }
@@ -1097,25 +1097,6 @@ string readPassword(char mask = '*')
     return pass;
 }
 
-/**
- * Sets both foreground and background colors
- * 
- * Params:
- *  params = Colors to set
- */
-void setColors(T...)(T params)
-{
-    foreach(param; params)
-    {
-        static if(is(typeof(param) == Fg)) {
-            foreground = param.val;
-        } else static if(is(typeof(param) == Bg)) {
-            background = param.val;
-        } else {
-            static assert(0, "Invalid parameter specified to setConsoleColors");
-        }
-    }
-}
 
 /**
  * Fills area with specified character
@@ -1221,7 +1202,8 @@ void clearScreen()
  */
 void resetColors()
 {
-    setColors(Fg.initial, Bg.initial);
+    foreground = Color.initial;
+    background = Color.initial;
 }
 
 
@@ -1274,8 +1256,8 @@ struct ColorTheme(Color fg, Color bg)
     {
         auto _fg = foreground;
         auto _bg = background;
-        foreground(fg);
-        background(bg);
+        foreground = fg;
+        background = bg;
         sink(s.dup);
         foreground = _fg;
         background = _bg;

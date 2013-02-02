@@ -39,10 +39,10 @@ import std.stdio, consoled;
 
 void main()
 {
-    foreground(Color.red);
+    foreground = Color.red;
     writeln("foo"); // Fg: Red | Bg: Default
     
-    background(Color.blue);
+    background = Color.blue;
     writeln("foo"); // Fg: Red | Bg: Blue
     
     resetColors(); // Bring back initial state
@@ -211,4 +211,20 @@ void main()
     while(true){}
 }
 
+```
+
+
+#### Color themes
+
+You can easy write colored messages with Color themes:
+
+```D
+import std.stdio, consoled;
+
+alias Error = ColorTheme!(Color.red, Color.black);
+
+void main()
+{
+	writeln(Error("foobar error"));
+}
 ```
