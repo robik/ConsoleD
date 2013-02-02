@@ -131,7 +131,7 @@ import std.stdio, consoled;
 void main()
 {
     // 6 is half of "insert coin" length.
-    setConsoleCursor(size.x / 2 - 6, size.y / 2);
+    setCursorPos(size.x / 2 - 6, size.y / 2);
     writeln("Insert coin");
 }
 ```

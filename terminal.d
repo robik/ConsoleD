@@ -1,5 +1,20 @@
+/**
+ * Module for supporting cursor and color manipulation on the console.
+ *
+ * The main interface for this module is the Terminal struct, which
+ * encapsulates the functions of the terminal. Creating an instance of
+ * this struct will perform console initialization; when the struct
+ * goes out of scope, any changes in console settings will be automatically
+ * reverted.
+ */
+module terminal;
+
 // parts of this were taken from Robik's ConsoleD
 // https://github.com/robik/ConsoleD/blob/master/consoled.d
+
+// Uncomment this line to get a main() to demonstrate this module's
+// capabilities.
+//version = Demo
 
 version(Windows) {
 	import core.sys.windows.windows;
@@ -14,6 +29,7 @@ version(Windows) {
 version(Posix) {
 	import core.sys.posix.termios;
 	import core.sys.posix.unistd;
+	import unix = core.sys.posix.unistd;
 	import core.sys.posix.sys.types;
 	import core.sys.posix.sys.time;
 	import core.stdc.stdio;
@@ -116,7 +132,7 @@ vs|xterm|xterm-color|vs100|xterm terminal emulator (X Window System):\
 
 
 #rxvt, added by me
-rxvt:\
+rxvt|rxvt-unicode:\
 	:am:bs:mi@:km:co#80:li#55:\
 	:im@:ei@:\
 	:ct=\E[3k:ue=\E[m:\
@@ -178,31 +194,48 @@ an|ansi|ansi-bbs|ANSI terminals (emulators):\
 
 enum Bright = 0x08;
 
+/// Defines the list of standard colors understood by Terminal.
 enum Color : ushort {
-	black = 0,
-	red = RED_BIT,
-	green = GREEN_BIT,
-	yellow = red | green,
-	blue = BLUE_BIT,
-	magenta = red | blue,
-	cyan = blue | green,
-	white = red | green | blue
+	black = 0, /// .
+	red = RED_BIT, /// .
+	green = GREEN_BIT, /// .
+	yellow = red | green, /// .
+	blue = BLUE_BIT, /// .
+	magenta = red | blue, /// .
+	cyan = blue | green, /// .
+	white = red | green | blue /// .
 }
 
+/// When capturing input, what events are you interested in?
+///
+/// Note: these flags can be OR'd together to select more than one option at a time.
 enum ConsoleInputFlags {
-	raw = 0,
-	echo = 1,
-	mouse = 2,
-	paste = 4,
+	raw = 0, /// raw input returns keystrokes immediately, without line buffering
+	echo = 1, /// do you want to automatically echo input back to the user?
+	mouse = 2, /// capture mouse events
+	paste = 4, /// capture paste events (note: without this, paste can come through as keystrokes)
 }
 
+/// Defines how terminal output should be handled.
 enum ConsoleOutputType {
-	linear = 0,
-	cellular = 1,
+	linear = 0, /// do you want output to work one line at a time?
+	cellular = 1, /// or do you want access to the terminal screen as a grid of characters?
+	//truncatedCellular = 3, /// cellular, but instead of wrapping output to the next line automatically, it will truncate at the edges
+}
+
+/// Some methods will try not to send unnecessary commands to the screen. You can override their judgement using a ForceOption parameter, if present
+enum ForceOption {
+	automatic = 0, /// automatically decide what to do (best, unless you know for sure it isn't right)
+	neverSend = -1, /// never send the data. This will only update Terminal's internal state. Use with caution because this can
+	alwaysSend = 1, /// always send the data, even if it doesn't seem necessary
 }
 
 // we could do it with termcap too, getenv("TERMCAP") then split on : and replace \E with \033 and get the pieces
 
+/// Encapsulates the I/O capabilities of a terminal.
+///
+/// Warning: do not write out escape sequences to the terminal. This won't work
+/// on Windows and will confuse Terminal's internal state on Posix.
 struct Terminal {
 	@disable this();
 	@disable this(this);
@@ -267,7 +300,7 @@ struct Terminal {
 					handleTermcapLine(line);
 				}
 			} else {
-				foreach(line; File("/etc/termcap").byLine) {
+				foreach(line; File("/etc/termcap").byLine()) {
 					handleTermcapLine(line);
 				}
 			}
@@ -478,18 +511,23 @@ struct Terminal {
 				}
 			}
 
-			writeString(buffer[0 .. bufferPos]);
+			writeStringRaw(buffer[0 .. bufferPos]);
 			return true;
 		}
 	}
 
 	version(Posix)
+	/**
+	 * Constructs an instance of Terminal representing the capabilities of
+	 * the current terminal.
+	 */
 	this(ConsoleOutputType type) {
 		readTermcap();
 
 		this.type = type;
 		if(type == ConsoleOutputType.cellular) {
 			doTermcap("ti");
+			moveTo(0, 0, ForceOption.alwaysSend); // we need to know where the cursor is for some features to work, and moving it is easier than querying it
 		}
 	}
 
@@ -497,6 +535,7 @@ struct Terminal {
 		HANDLE hConsole;
 
 	version(Windows)
+	/// ditto
 	this(ConsoleOutputType type) {
 		hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
 	}
@@ -507,76 +546,127 @@ struct Terminal {
 			doTermcap("te");
 		}
 		reset();
+		flush();
 	}
 
-	void color(int foreground, int background) {
-		version(Windows) {
-			// assuming a dark background on windows, so LowContrast == dark which means the bit is NOT set on hardware
-			/*
-			foreground ^= LowContrast;
-			background ^= LowContrast;
-			*/
-			SetConsoleTextAttribute(
-				GetStdHandle(STD_OUTPUT_HANDLE),
-				cast(ushort)((background << 4) | foreground));
-		} else {
-			import std.process;
-			// I started using this envvar for my text editor, but now use it elsewhere too
-			// if we aren't set to dark, assume light
-			/*
-			if(getenv("ELVISBG") == "dark") {
-				// LowContrast on dark bg menas
-			} else {
+	int _currentForeground = Color.black; // FIXME: this isn't necessarily right
+	int _currentBackground = Color.white;
+
+	/// Changes the current color. See enum Color for the values.
+	void color(int foreground, int background, ForceOption force = ForceOption.automatic) {
+		if(force != ForceOption.neverSend) {
+			version(Windows) {
+				// assuming a dark background on windows, so LowContrast == dark which means the bit is NOT set on hardware
+				/*
 				foreground ^= LowContrast;
 				background ^= LowContrast;
-			}
-			*/
+				*/
+				SetConsoleTextAttribute(
+					GetStdHandle(STD_OUTPUT_HANDLE),
+					cast(ushort)((background << 4) | foreground));
+			} else {
+				import std.process;
+				// I started using this envvar for my text editor, but now use it elsewhere too
+				// if we aren't set to dark, assume light
+				/*
+				if(getenv("ELVISBG") == "dark") {
+					// LowContrast on dark bg menas
+				} else {
+					foreground ^= LowContrast;
+					background ^= LowContrast;
+				}
+				*/
 
-			writef("\033[%dm\033[3%dm\033[4%dm",
-				(foreground & Bright) ? 1 : 0,
-				cast(int) foreground & ~Bright,
-				cast(int) background & ~Bright);
+				import std.string;
+
+				if(force == ForceOption.alwaysSend || foreground != _currentForeground || background != _currentBackground) {
+					writeStringRaw(xformat("\033[%dm\033[3%dm\033[4%dm",
+						(foreground & Bright) ? 1 : 0,
+						cast(int) foreground & ~Bright,
+						cast(int) background & ~Bright));
+				}
+			}
 		}
+
+		_currentForeground = foreground;
+		_currentBackground = background;
 	}
 
+	/// Returns the terminal to normal output colors
 	void reset() {
 		version(Windows)
 			SetConsoleTextAttribute(
 				GetStdHandle(STD_OUTPUT_HANDLE),
 				cast(ushort)((Color.black << 4) | Color.white));
 		else
-			writef("\033[0m");
+			writeStringRaw("\033[0m");
 	}
 
 	// FIXME: add moveRelative
 
-	version(Posix)
-	void moveTo(int x, int y) {
-		doTermcap("cm", y, x);
+	/// The current x position of the output cursor. 0 == leftmost column
+	@property int cursorX() {
+		return _cursorX;
 	}
 
-	version(Windows)
-	void moveTo(int x, int y) {
-		COORD coord = {cast(short) x, cast(short) y};
-		SetConsoleCursorPosition(hConsole, coord);
+	/// The current y position of the output cursor. 0 == topmost row
+	@property int cursorY() {
+		return _cursorY;
 	}
 
+	private int _cursorX;
+	private int _cursorY;
+
+	/// Moves the output cursor to the given position. (0, 0) is the upper left corner of the screen. The force parameter can be used to force an update, even if Terminal doesn't think it is necessary
+	void moveTo(int x, int y, ForceOption force = ForceOption.automatic) {
+		if(force != ForceOption.neverSend && (force == ForceOption.alwaysSend || x != _cursorX || y != _cursorY)) {
+			version(Posix)
+				doTermcap("cm", y, x);
+			else version(Windows) {
+				COORD coord = {cast(short) x, cast(short) y};
+				SetConsoleCursorPosition(hConsole, coord);
+			} else static assert(0);
+		}
+
+		_cursorX = x;
+		_cursorY = y;
+	}
+
+	/*
+	// alas this doesn't work due to a bunch of delegate context pointer and postblit problems
+	// instead of using: auto input = terminal.captureInput(flags)
+	// use: auto input = RealTimeConsoleInput(&terminal, flags);
+	/// Gets real time input, disabling line buffering
 	RealTimeConsoleInput captureInput(ConsoleInputFlags flags) {
 		return RealTimeConsoleInput(&this, flags);
 	}
+	*/
 
+	/// Changes the terminal's title
 	void setTitle(string t) {
 		version(Windows) {
 			SetConsoleTitleA(toStringz(t));
 		} else {
+			import std.string;
 			if(terminalInFamily("xterm", "rxvt", "screen"))
-				writef("\033]0;%s\007", t);
+				writeStringRaw(xformat("\033]0;%s\007", t));
 		}
 	}
 
+	/// Flushes your updates to the terminal.
+	/// It is important to call this when you are finished writing for now if you are using the version=with_eventloop
 	void flush() {
-		version(Posix)
-			fflush(stdout);
+		version(Posix) {
+			ssize_t written;
+
+			while(writeBuffer.length) {
+				written = unix.write(1 /*this.fd*/, writeBuffer.ptr, writeBuffer.length);
+				if(written < 0)
+					throw new Exception("write failed for some reason");
+				writeBuffer = writeBuffer[written .. $];
+			}
+		}
+		// not buffering right now on Windows, since it probably isn't on ssh anyway
 	}
 
 	int[] getSize() {
@@ -597,42 +687,183 @@ struct Terminal {
 		}
 	}
 
-	int width() {
-		return getSize()[0];
+	void updateSize() {
+		auto size = getSize();
+		_width = size[0];
+		_height = size[1];
 	}
 
-	int height() {
-		return getSize()[1];
+	private int _width;
+	private int _height;
+
+	/// The current width of the terminal (the number of columns)
+	@property int width() {
+		if(_width == 0 || _height == 0)
+			updateSize();
+		return _width;
+	}
+
+	/// The current height of the terminal (the number of rows)
+	@property int height() {
+		if(_width == 0 || _height == 0)
+			updateSize();
+		return _height;
 	}
 
 	/*
 	void write(T...)(T t) {
-		import std.conv;
 		foreach(arg; t) {
-			writeString(to!string(arg));
+			writeStringRaw(to!string(arg));
 		}
 	}
 	*/
 
+	/// Writes to the terminal at the current cursor position.
+	///
+	/// Uses std.string.xformat for the format string handling.
 	void writef(T...)(string f, T t) {
 		import std.string;
-		writeString(xformat(f, t));
+		writePrintableString(xformat(f, t));
 	}
 
-	void writeString(in char[] s) {
-		// FIXME: make sure all the data is sent, check for errors
-		version(Posix) {
-			write(0, s.ptr, s.length);
+	/// ditto
+	void writefln(T...)(string f, T t) {
+		writef(f ~ "\n", t);
+	}
+
+	/// ditto
+	void write(T...)(T t) {
+		import std.conv;
+		string data;
+		foreach(arg; t) {
+			data ~= to!string(arg);
 		}
 
-		version(Windows) {
+		writePrintableString(data);
+	}
+
+	/// ditto
+	void writeln(T...)(T t) {
+		write(t, "\n");
+	}
+
+	/+
+	/// A combined moveTo and writef that puts the cursor back where it was before when it finishes the write.
+	/// Only works in cellular mode. 
+	/// Might give better performance than moveTo/writef because if the data to write matches the internal buffer, it skips sending anything (to override the buffer check, you can use moveTo and writePrintableString with ForceOption.alwaysSend)
+	void writefAt(T...)(int x, int y, string f, T t) {
+		import std.string;
+		auto toWrite = xformat(f, t);
+
+		auto oldX = _cursorX;
+		auto oldY = _cursorY;
+
+		writeAtWithoutReturn(x, y, toWrite);
+
+		moveTo(oldX, oldY);
+	}
+
+	void writeAtWithoutReturn(int x, int y, in char[] data) {
+		moveTo(x, y);
+		writeStringRaw(toWrite, ForceOption.alwaysSend);
+	}
+	+/
+
+	void writePrintableString(in char[] s, ForceOption force = ForceOption.automatic) {
+		// an escape character is going to mess things up. Actually any non-printable character could, but meh
+		// assert(s.indexOf("\033") == -1);
+
+		// tracking cursor position
+		foreach(ch; s) {
+			switch(ch) {
+				case '\n':
+					_cursorX = 0;
+					_cursorY++;
+				break;
+				case '\t':
+					_cursorX ++;
+					_cursorX += _cursorX % 8; // FIXME: get the actual tabstop, if possible
+				break;
+				default:
+					_cursorX++;
+			}
+
+			if(_cursorX >= width) {
+				_cursorX = 0;
+				_cursorY++;
+			}
+
+			if(_cursorY == height)
+				_cursorY--;
+
+			/+
+			auto index = getIndex(_cursorX, _cursorY);
+			if(data[index] != ch) {
+				data[index] = ch;
+			}
+			+/
+		}
+
+		writeStringRaw(s);
+	}
+
+	deprecated alias writePrintableString writeString; /// use write() or writePrintableString instead
+
+	private string writeBuffer;
+
+	private void writeStringRaw(in char[] s) {
+		// FIXME: make sure all the data is sent, check for errors
+		version(Posix) {
+			writeBuffer ~= s; // buffer it to do everything at once in flush() calls
+		} else version(Windows) {
 			DWORD written;
 			/* FIXME: WriteConsoleW */
 			WriteConsoleA(hConsole, s.ptr, s.length, &written, null);
+		} else static assert(0);
+	}
+
+	/// Clears the screen.
+	void clear() {
+		version(Posix) {
+			doTermcap("cl");
+		} else version(Windows) {
+			// TBD: copy the code from here and test it:
+			// http://support.microsoft.com/kb/99261
+			assert(0, "clear not yet implemented");
 		}
+
+		_cursorX = 0;
+		_cursorY = 0;
 	}
 }
 
+/+
+struct ConsoleBuffer {
+	int cursorX;
+	int cursorY;
+	int width;
+	int height;
+	dchar[] data;
+
+	void actualize(Terminal* t) {
+		auto writer = t.getBufferedWriter();
+
+		this.copyTo(&(t.onScreen));
+	}
+
+	void copyTo(ConsoleBuffer* buffer) {
+		buffer.cursorX = this.cursorX;
+		buffer.cursorY = this.cursorY;
+		buffer.width = this.width;
+		buffer.height = this.height;
+		buffer.data[] = this.data[];
+	}
+}
++/
+
+/**
+ * Encapsulates the stream of input events received from the terminal input.
+ */
 struct RealTimeConsoleInput {
 	@disable this();
 	@disable this(this);
@@ -640,6 +871,10 @@ struct RealTimeConsoleInput {
 	version(Posix) {
 		private int fd;
 		private termios old;
+		ubyte[128] hack;
+		// apparently termios isn't the size druntime thinks it is (at least on 32 bit, sometimes)....
+		// tcgetattr smashed other variables in here too that could create random problems
+		// so this hack is just to give some room for that to happen without destroying the rest of the world
 	}
 
 	version(Windows) {
@@ -652,7 +887,8 @@ struct RealTimeConsoleInput {
 	private Terminal* terminal;
 	private void delegate()[] destructor;
 
-	private this(Terminal* terminal, ConsoleInputFlags flags) {
+	/// To capture input, you need to provide a terminal and some flags.
+	public this(Terminal* terminal, ConsoleInputFlags flags) {
 		this.flags = flags;
 		this.terminal = terminal;
 
@@ -697,63 +933,92 @@ struct RealTimeConsoleInput {
 			n.c_lflag &= ~f;
 			tcsetattr(fd, TCSANOW, &n);
 
-			destructor ~= { tcsetattr(fd, TCSANOW, &old); };
+			// some weird bug breaks this, https://github.com/robik/ConsoleD/issues/3
+			//destructor ~= { tcsetattr(fd, TCSANOW, &old); };
 
 			if(flags & ConsoleInputFlags.mouse) {
 				if(terminal.terminalInFamily("xterm", "rxvt", "screen", "linux")) {
-					terminal.writeString("\033[?1000h"); // this is vt200 mouse, supported by xterm and linux + gpm
-					destructor ~= { terminal.writeString("\033[?1000l"); };
+					terminal.writeStringRaw("\033[?1000h"); // this is vt200 mouse, supported by xterm and linux + gpm
+					destructor ~= { terminal.writeStringRaw("\033[?1000l"); };
 				}
 			}
 			if(flags & ConsoleInputFlags.paste) {
 				if(terminal.terminalInFamily("xterm", "rxvt", "screen")) {
-					terminal.writeString("\033[?2004h"); // bracketed paste mode
-					destructor ~= { terminal.writeString("\033[?2004l"); };
+					terminal.writeStringRaw("\033[?2004h"); // bracketed paste mode
+					destructor ~= { terminal.writeStringRaw("\033[?2004l"); };
 				}
 			}
 
 			// try to ensure the terminal is in UTF-8 mode
 			if(terminal.terminalInFamily("xterm", "screen", "linux")) {
-				terminal.writeString("\033%G");
+				terminal.writeStringRaw("\033%G");
 			}
 
 			terminal.flush();
 		}
+
+
+		version(with_eventloop) {
+			import arsd.eventloop;
+			version(Windows)
+				auto listenTo = inputHandle;
+			else version(Posix)
+				auto listenTo = this.fd;
+			else static assert(0, "idk about this OS");
+
+			addFileEventListeners(listenTo, &eventListener, null, null);
+			destructor ~= { removeFileEventListeners(listenTo); };
+			addOnIdle(&terminal.flush);
+			destructor ~= { removeOnIdle(&terminal.flush); };
+		}
+	}
+
+	version(with_eventloop) {
+		import arsd.eventloop;
+		void eventListener(OsFileHandle fd) {
+			auto queue = readNextEvents();
+			foreach(event; queue)
+				send(event);
+		}
 	}
 
 	~this() {
+		// the delegate thing doesn't actually work for this... for some reason
+		version(Posix)
+			tcsetattr(fd, TCSANOW, &old);
 		// we're just undoing everything the constructor did, in reverse order, same criteria
 		foreach_reverse(d; destructor)
 			d();
 	}
 
+	/// Returns true if there is input available now
 	bool kbhit() {
 		return timedCheckForInput(0);
 	}
 
-	version(Windows)
+	/// Check for input, waiting no longer than the number of milliseconds
 	bool timedCheckForInput(int milliseconds) {
-		auto response = WaitForSingleObject(terminal.hConsole, milliseconds);
-		if(response  == 0)
-			return true; // the object is ready
-		return false;
+		version(Windows) {
+			auto response = WaitForSingleObject(terminal.hConsole, milliseconds);
+			if(response  == 0)
+				return true; // the object is ready
+			return false;
+		} else version(Posix) {
+			timeval tv;
+			tv.tv_sec = 0;
+			tv.tv_usec = milliseconds * 1000;
+
+			fd_set fs;
+			FD_ZERO(&fs);
+
+			FD_SET(fd, &fs);
+			select(fd + 1, &fs, null, null, &tv);
+
+			return FD_ISSET(fd, &fs);
+		}
 	}
 
-	version(Posix)
-	bool timedCheckForInput(int milliseconds) {
-		timeval tv;
-		tv.tv_sec = 0;
-		tv.tv_usec = milliseconds * 1000;
-
-		fd_set fs;
-		FD_ZERO(&fs);
-
-		FD_SET(fd, &fs);
-		select(fd + 1, &fs, null, null, &tv);
-
-		return FD_ISSET(fd, &fs);
-	}
-
+	/// Get one character from the terminal
 	char getch() {
 		import core.stdc.stdio;
 		return cast(char) fgetc(stdin);
@@ -809,6 +1074,12 @@ struct RealTimeConsoleInput {
 	// paste event
 	// mouse event
 	// size event maybe, and if appropriate focus events
+
+	/// Returns the next event.
+	///
+	/// Experimental: It is also possible to integrate this into
+	/// a generic event loop, currently under -version=with_eventloop and it will
+	/// require the module arsd.eventloop (Linux only at this point)
 	InputEvent nextEvent() {
 		if(inputQueue.length) {
 			auto e = inputQueue[0];
@@ -848,6 +1119,8 @@ struct RealTimeConsoleInput {
 
 	version(Windows)
 	InputEvent[] readNextEvents() {
+		terminal.flush(); // make sure all output is sent out before waiting for anything
+
 		INPUT_RECORD[32] buffer;
 		DWORD actuallyRead;
 			// FIXME: ReadConsoleInputW
@@ -922,6 +1195,8 @@ struct RealTimeConsoleInput {
 
 	version(Posix)
 	InputEvent[] readNextEvents() {
+		terminal.flush(); // make sure all output is sent out before we try to get input
+
 		InputEvent[] charPressAndRelease(dchar character) {
 			return [
 				InputEvent(CharacterEvent(CharacterEvent.Type.Pressed, character, 0)),
@@ -1141,74 +1416,111 @@ struct RealTimeConsoleInput {
 	}
 }
 
+/// Input event for characters
 struct CharacterEvent {
-	enum Type { Pressed, Released }
+	/// .
+	enum Type {
+		Released, /// .
+		Pressed /// .
+	}
 
-	Type eventType;
-	dchar character;
-	uint modifierState;
+	Type eventType; /// .
+	dchar character; /// .
+	uint modifierState; /// .
 }
 
 struct NonCharacterKeyEvent {
-	enum Type { Pressed, Released}
-	Type eventType;
+	/// .
+	enum Type {
+		Released, /// .
+		Pressed /// .
+	}
+	Type eventType; /// .
 
 	// these match Windows virtual key codes numerically for simplicity of translation there
 	//http://msdn.microsoft.com/en-us/library/windows/desktop/dd375731%28v=vs.85%29.aspx
+	/// .
 	enum Key : int {
-		escape = 0x1b,
-		F1 = 0x70,
-		F2 = 0x71,
-		F3 = 0x72,
-		F4 = 0x73,
-		F5 = 0x74,
-		F6 = 0x75,
-		F7 = 0x76,
-		F8 = 0x77,
-		F9 = 0x78,
-		F10 = 0x79,
-		F11 = 0x7A,
-		F12 = 0x7B,
-		LeftArrow = 0x25,
-		RightArrow = 0x27,
-		UpArrow = 0x26,
-		DownArrow = 0x28,
-		Insert = 0x2d,
-		Delete = 0x2e,
-		Home = 0x24,
-		End = 0x23,
-		PageUp = 0x21,
-		PageDown = 0x22,
+		escape = 0x1b, /// .
+		F1 = 0x70, /// .
+		F2 = 0x71, /// .
+		F3 = 0x72, /// .
+		F4 = 0x73, /// .
+		F5 = 0x74, /// .
+		F6 = 0x75, /// .
+		F7 = 0x76, /// .
+		F8 = 0x77, /// .
+		F9 = 0x78, /// .
+		F10 = 0x79, /// .
+		F11 = 0x7A, /// .
+		F12 = 0x7B, /// .
+		LeftArrow = 0x25, /// .
+		RightArrow = 0x27, /// .
+		UpArrow = 0x26, /// .
+		DownArrow = 0x28, /// .
+		Insert = 0x2d, /// .
+		Delete = 0x2e, /// .
+		Home = 0x24, /// .
+		End = 0x23, /// .
+		PageUp = 0x21, /// .
+		PageDown = 0x22, /// .
 		}
-	Key key;
+	Key key; /// .
 
-	uint modifierState;
+	uint modifierState; /// .
 
 }
 
+/// .
 struct PasteEvent {
-	string pastedText;
+	string pastedText; /// .
 }
 
+/// .
 struct MouseEvent {
-	enum Type { Pressed, Released, Clicked, Moved }
-	Type eventType;
+	/// .
+	enum Type {
+		Released, /// .
+		Pressed, /// .
+		Clicked, /// .
+		Moved /// .
+	}
 
-	enum Button : uint { None = 0, Left = 1, Middle = 4, Right = 2, ScrollUp = 8, ScrollDown = 16 }
-	uint buttons;
-	int x;
-	int y;
-	uint modifierState; // shift, ctrl, alt, meta, altgr
+	Type eventType; /// .
+
+	/// .
+	enum Button : uint {
+		None = 0, /// .
+		Left = 1, /// .
+		Middle = 4, /// .
+		Right = 2, /// .
+		ScrollUp = 8, /// .
+		ScrollDown = 16 /// .
+	}
+	uint buttons; /// A mask of Button
+	int x; /// 0 == left side
+	int y; /// 0 == top
+	uint modifierState; /// shift, ctrl, alt, meta, altgr
 }
 
 interface CustomEvent {}
 
+/// GetNextEvent returns this. Check the type, then use get to get the more detailed input
 struct InputEvent {
-	enum Type { CharacterEvent, NonCharacterKeyEvent, PasteEvent, MouseEvent, CustomEvent }
+	/// .
+	enum Type {
+		CharacterEvent, ///.
+		NonCharacterKeyEvent, /// .
+		PasteEvent, /// .
+		MouseEvent, /// .
+		CustomEvent
+	}
 
+	/// .
 	@property Type type() { return t; }
 
-	auto get(Type T)() {
+	/// .
+	@property auto get(Type T)() {
 		if(type != T)
 			throw new Exception("Wrong event type");
 		static if(T == Type.CharacterEvent)
@@ -1258,27 +1570,39 @@ struct InputEvent {
 	}
 }
 
+version(Demo)
 void main() {
-	auto terminal = Terminal(ConsoleOutputType.cellular);
+	auto terminal = Terminal(ConsoleOutputType.linear);
 
 	terminal.setTitle("Basic I/O");
-	auto input = terminal.captureInput(ConsoleInputFlags.raw | ConsoleInputFlags.mouse | ConsoleInputFlags.paste);
+	auto input = RealTimeConsoleInput(&terminal, ConsoleInputFlags.raw | ConsoleInputFlags.mouse | ConsoleInputFlags.paste);
 
 	terminal.color(Color.green | Bright, Color.black);
+
+	terminal.write("test some long string to see if it wraps or what because i dont really know what it is going to do so i just want to test i think it will wrap but gotta be sure lolololololololol");
+	terminal.writefln("%d %d", terminal.cursorX, terminal.cursorY);
 
 	int centerX = terminal.width / 2;
 	int centerY = terminal.height / 2;
 
-	loop: while(true) {
-		auto event = input.nextEvent();
+	bool timeToBreak = false;
 
+	void handleEvent(InputEvent event) {
 		terminal.writef("%s\n", event.type);
 		final switch(event.type) {
 			case InputEvent.Type.CharacterEvent:
 				auto ev = event.get!(InputEvent.Type.CharacterEvent);
 				terminal.writef("\t%s\n", ev);
-				if(ev.character == 'Q')
-					break loop;
+				if(ev.character == 'Q') {
+					timeToBreak = true;
+					version(with_eventloop) {
+						import arsd.eventloop;
+						exit();
+					}
+				}
+
+				if(ev.character == 'C')
+					terminal.clear();
 			break;
 			case InputEvent.Type.NonCharacterKeyEvent:
 				terminal.writef("\t%s\n", event.get!(InputEvent.Type.NonCharacterKeyEvent));
@@ -1293,6 +1617,8 @@ void main() {
 			break;
 		}
 
+		terminal.writefln("%d %d", terminal.cursorX, terminal.cursorY);
+
 		/*
 		if(input.kbhit()) {
 			auto c = input.getch();
@@ -1304,6 +1630,19 @@ void main() {
 		}
 		usleep(10000);
 		*/
+	}
+
+	version(with_eventloop) {
+		import arsd.eventloop;
+		addListener(&handleEvent);
+		loop();
+	} else {
+		loop: while(true) {
+			auto event = input.nextEvent();
+			handleEvent(event);
+			if(timeToBreak)
+				break loop;
+		}
 	}
 }
 
