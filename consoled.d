@@ -179,7 +179,7 @@ version(Windows)
         } else if(cos == ConsoleOutputStream.stderr) {
             handle = STD_ERROR_HANDLE;
         } else {
-            assert(0, "Invalid consone output stream specified");
+            assert(0, "Invalid console output stream specified");
         }
         
         
