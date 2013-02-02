@@ -8,8 +8,10 @@
  *  $(LI Light background colors are not supported. Non-light equivalents are used on Posix platforms.)
  * )
  * 
- * License: <a href="http://www.boost.org/LICENSE_1_0.txt">Boost License</a>
- * Authors: <a href="http://github.com/robik">Robert 'Robik' Pasiński</a>
+ * License: 
+ *  <a href="http://www.boost.org/LICENSE_1_0.txt">Boost License</a>
+ * Authors:
+ *  <a href="http://github.com/robik">Robert 'Robik' Pasiński</a>
  */
 module consoled;
 
@@ -1252,6 +1254,36 @@ alias EnumTypedef!(Color, "bg") Bg;
 
 
 /**
+ * Represents color theme.
+ * 
+ * Examples:
+ * ----
+ * alias ThError = ColorTheme(Color.red, Color.black);
+ * writeln(ThError("string to write using Error theme(red foreground on black background)"));
+ * ----
+ */
+struct ColorTheme(Color fg, Color bg)
+{
+    string s;
+    this(string s)
+    {
+        this.s = s;
+    }
+
+    void toString(scope void delegate(const(char)[]) sink) const
+    {
+        auto _fg = foreground;
+        auto _bg = background;
+        foreground(fg);
+        background(bg);
+        sink(s.dup);
+        foreground = _fg;
+        background = _bg;
+    }
+}
+
+
+/**
  * Writes text to console and colorizes text
  * 
  * Params:
@@ -1262,9 +1294,9 @@ void writec(T...)(T params)
     foreach(param; params)
     {
         static if(is(typeof(param) == Fg)) {
-            setConsoleForeground(param.val);
+            foreground = param.val;
         } else static if(is(typeof(param) == Bg)) {
-            setConsoleBackground(param.val);
+            background = param.val;
         } else {
             write(param);
         }

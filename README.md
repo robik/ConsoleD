@@ -199,7 +199,7 @@ void main()
             
             // Posix only
             case CloseType.Quit:
-				writeln("Ctrl+\");
+				writeln(`Ctrl+\`);
             break;
             
             default:
