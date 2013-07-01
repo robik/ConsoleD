@@ -580,7 +580,7 @@ struct Terminal {
 				import std.string;
 
 				if(force == ForceOption.alwaysSend || foreground != _currentForeground || background != _currentBackground) {
-					writeStringRaw(xformat("\033[%dm\033[3%dm\033[4%dm",
+					writeStringRaw(format("\033[%dm\033[3%dm\033[4%dm",
 						(foreground & Bright) ? 1 : 0,
 						cast(int) foreground & ~Bright,
 						cast(int) background & ~Bright));
@@ -649,7 +649,7 @@ struct Terminal {
 		} else {
 			import std.string;
 			if(terminalInFamily("xterm", "rxvt", "screen"))
-				writeStringRaw(xformat("\033]0;%s\007", t));
+				writeStringRaw(format("\033]0;%s\007", t));
 		}
 	}
 
@@ -719,11 +719,9 @@ struct Terminal {
 	*/
 
 	/// Writes to the terminal at the current cursor position.
-	///
-	/// Uses std.string.xformat for the format string handling.
 	void writef(T...)(string f, T t) {
 		import std.string;
-		writePrintableString(xformat(f, t));
+		writePrintableString(format(f, t));
 	}
 
 	/// ditto
@@ -753,7 +751,7 @@ struct Terminal {
 	/// Might give better performance than moveTo/writef because if the data to write matches the internal buffer, it skips sending anything (to override the buffer check, you can use moveTo and writePrintableString with ForceOption.alwaysSend)
 	void writefAt(T...)(int x, int y, string f, T t) {
 		import std.string;
-		auto toWrite = xformat(f, t);
+		auto toWrite = format(f, t);
 
 		auto oldX = _cursorX;
 		auto oldY = _cursorY;
