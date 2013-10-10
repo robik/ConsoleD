@@ -6,8 +6,45 @@
  * this struct will perform console initialization; when the struct
  * goes out of scope, any changes in console settings will be automatically
  * reverted.
+ *
+ * Note: on Posix, it traps SIGINT and translates it into an input event. You should
+ * keep your event loop moving and keep an eye open for this to exit cleanly; simply break
+ * your event loop upon receiving a UserInterruptionEvent. (Without
+ * the signal handler, ctrl+c can leave your terminal in a bizarre state.)
+ *
+ * As a user, if you have to forcibly kill your program and the event doesn't work, there's still ctrl+\
  */
 module terminal;
+
+// FIXME: http://msdn.microsoft.com/en-us/library/windows/desktop/ms686016%28v=vs.85%29.aspx
+
+version(linux)
+	enum SIGWINCH = 28; // FIXME: confirm this is correct on other posix
+
+version(Posix) {
+	__gshared bool windowSizeChanged = false;
+	__gshared bool interrupted = false;
+
+	version(with_eventloop)
+		struct SignalFired {}
+
+	extern(C)
+	void sizeSignalHandler(int sigNumber) {
+		windowSizeChanged = true;
+		version(with_eventloop) {
+			import arsd.eventloop;
+			send(SignalFired());
+		}
+	}
+	extern(C)
+	void interruptSignalHandler(int sigNumber) {
+		interrupted = true;
+		version(with_eventloop) {
+			import arsd.eventloop;
+			send(SignalFired());
+		}
+	}
+}
 
 // parts of this were taken from Robik's ConsoleD
 // https://github.com/robik/ConsoleD/blob/master/consoled.d
@@ -203,17 +240,23 @@ enum Color : ushort {
 	blue = BLUE_BIT, /// .
 	magenta = red | blue, /// .
 	cyan = blue | green, /// .
-	white = red | green | blue /// .
+	white = red | green | blue, /// .
+	DEFAULT = 256,
 }
 
 /// When capturing input, what events are you interested in?
 ///
 /// Note: these flags can be OR'd together to select more than one option at a time.
+///
+/// Ctrl+C and other keyboard input is always captured, though it may be line buffered if you don't use raw.
 enum ConsoleInputFlags {
 	raw = 0, /// raw input returns keystrokes immediately, without line buffering
 	echo = 1, /// do you want to automatically echo input back to the user?
 	mouse = 2, /// capture mouse events
 	paste = 4, /// capture paste events (note: without this, paste can come through as keystrokes)
+	size = 8, /// window resize events
+
+	allInputEvents = 8|4|2, /// subscribe to all input events.
 }
 
 /// Defines how terminal output should be handled.
@@ -538,10 +581,36 @@ struct Terminal {
 	/// ditto
 	this(ConsoleOutputType type) {
 		hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
+		if(type == ConsoleOutputType.cellular) {
+			/*
+http://msdn.microsoft.com/en-us/library/windows/desktop/ms686125%28v=vs.85%29.aspx
+http://msdn.microsoft.com/en-us/library/windows/desktop/ms683193%28v=vs.85%29.aspx
+			*/
+			COORD size;
+			/*
+			CONSOLE_SCREEN_BUFFER_INFO sbi;
+			GetConsoleScreenBufferInfo(hConsole, &sbi);
+			size.X = cast(short) GetSystemMetrics(SM_CXMIN);
+			size.Y = cast(short) GetSystemMetrics(SM_CYMIN);
+			*/
+
+			// FIXME: this sucks, maybe i should just revert it. but there shouldn't be scrollbars in cellular mode
+			size.X = 80;
+			size.Y = 24;
+			SetConsoleScreenBufferSize(hConsole, size);
+			moveTo(0, 0, ForceOption.alwaysSend); // we need to know where the cursor is for some features to work, and moving it is easier than querying it
+		}
 	}
+
+	// only use this if you are sure you know what you want, since the terminal is a shared resource you generally really want to reset it to normal when you leave...
+	bool _suppressDestruction;
 
 	version(Posix)
 	~this() {
+		if(_suppressDestruction) {
+			flush();
+			return;
+		}
 		if(type == ConsoleOutputType.cellular) {
 			doTermcap("te");
 		}
@@ -549,11 +618,18 @@ struct Terminal {
 		flush();
 	}
 
-	int _currentForeground = Color.black; // FIXME: this isn't necessarily right
-	int _currentBackground = Color.white;
+	version(Windows)
+	~this() {
+		flush();
+		showCursor();
+	}
+
+	int _currentForeground = Color.DEFAULT;
+	int _currentBackground = Color.DEFAULT;
+	bool reverseVideo = false;
 
 	/// Changes the current color. See enum Color for the values.
-	void color(int foreground, int background, ForceOption force = ForceOption.automatic) {
+	void color(int foreground, int background, ForceOption force = ForceOption.automatic, bool reverseVideo = false) {
 		if(force != ForceOption.neverSend) {
 			version(Windows) {
 				// assuming a dark background on windows, so LowContrast == dark which means the bit is NOT set on hardware
@@ -561,9 +637,33 @@ struct Terminal {
 				foreground ^= LowContrast;
 				background ^= LowContrast;
 				*/
-				SetConsoleTextAttribute(
-					GetStdHandle(STD_OUTPUT_HANDLE),
-					cast(ushort)((background << 4) | foreground));
+
+				ushort setTof = cast(ushort) foreground;
+				ushort setTob = cast(ushort) background;
+
+				// this isn't necessarily right but meh
+				if(background == Color.DEFAULT)
+					setTob = Color.black;
+				if(foreground == Color.DEFAULT)
+					setTof = Color.white;
+
+				if(force == ForceOption.alwaysSend || reverseVideo != this.reverseVideo || foreground != _currentForeground || background != _currentBackground) {
+					flush(); // if we don't do this now, the buffering can screw up the colors...
+					if(reverseVideo) {
+						if(background == Color.DEFAULT)
+							setTof = Color.black;
+						else
+							setTof = cast(ushort) background | (foreground & Bright);
+
+						if(background == Color.DEFAULT)
+							setTob = Color.white;
+						else
+							setTob = cast(ushort) (foreground & ~Bright);
+					}
+					SetConsoleTextAttribute(
+						GetStdHandle(STD_OUTPUT_HANDLE),
+						cast(ushort)((setTob << 4) | setTof));
+				}
 			} else {
 				import std.process;
 				// I started using this envvar for my text editor, but now use it elsewhere too
@@ -577,19 +677,29 @@ struct Terminal {
 				}
 				*/
 
+				ushort setTof = cast(ushort) foreground & ~Bright;
+				ushort setTob = cast(ushort) background & ~Bright;
+
+				if(foreground == Color.DEFAULT)
+					setTof = 9; // ansi sequence for reset
+				if(background == Color.DEFAULT)
+					setTob = 9;
+
 				import std.string;
 
-				if(force == ForceOption.alwaysSend || foreground != _currentForeground || background != _currentBackground) {
-					writeStringRaw(format("\033[%dm\033[3%dm\033[4%dm",
-						(foreground & Bright) ? 1 : 0,
-						cast(int) foreground & ~Bright,
-						cast(int) background & ~Bright));
+				if(force == ForceOption.alwaysSend || reverseVideo != this.reverseVideo || foreground != _currentForeground || background != _currentBackground) {
+					writeStringRaw(format("\033[%dm\033[%dm\033[3%dm\033[4%dm",
+						reverseVideo ? 7 : 27,
+						(foreground != Color.DEFAULT && (foreground & Bright)) ? 1 : 0,
+						cast(int) setTof,
+						cast(int) setTob));
 				}
 			}
 		}
 
 		_currentForeground = foreground;
 		_currentBackground = background;
+		this.reverseVideo = reverseVideo;
 	}
 
 	/// Returns the terminal to normal output colors
@@ -623,6 +733,8 @@ struct Terminal {
 			version(Posix)
 				doTermcap("cm", y, x);
 			else version(Windows) {
+
+				flush(); // if we don't do this now, the buffering can screw up the position
 				COORD coord = {cast(short) x, cast(short) y};
 				SetConsoleCursorPosition(hConsole, coord);
 			} else static assert(0);
@@ -630,6 +742,31 @@ struct Terminal {
 
 		_cursorX = x;
 		_cursorY = y;
+	}
+
+	/// shows the cursor
+	void showCursor() {
+		version(Posix)
+			doTermcap("ve");
+		else {
+			CONSOLE_CURSOR_INFO info;
+			GetConsoleCursorInfo(hConsole, &info);
+			info.bVisible = true;
+			SetConsoleCursorInfo(hConsole, &info);
+		}
+	}
+
+	/// hides the cursor
+	void hideCursor() {
+		version(Posix)
+			doTermcap("vi");
+		else {
+			CONSOLE_CURSOR_INFO info;
+			GetConsoleCursorInfo(hConsole, &info);
+			info.bVisible = false;
+			SetConsoleCursorInfo(hConsole, &info);
+		}
+
 	}
 
 	/*
@@ -663,6 +800,13 @@ struct Terminal {
 				written = unix.write(1 /*this.fd*/, writeBuffer.ptr, writeBuffer.length);
 				if(written < 0)
 					throw new Exception("write failed for some reason");
+				writeBuffer = writeBuffer[written .. $];
+			}
+		} else version(Windows) {
+			while(writeBuffer.length) {
+				DWORD written;
+				/* FIXME: WriteConsoleW */
+				WriteConsoleA(hConsole, writeBuffer.ptr, writeBuffer.length, &written, null);
 				writeBuffer = writeBuffer[written .. $];
 			}
 		}
@@ -786,7 +930,7 @@ struct Terminal {
 					_cursorX++;
 			}
 
-			if(_cursorX >= width) {
+			if(_wrapAround && _cursorX >= width) {
 				_cursorX = 0;
 				_cursorY++;
 			}
@@ -805,18 +949,19 @@ struct Terminal {
 		writeStringRaw(s);
 	}
 
+	/* private */ bool _wrapAround = true;
+
 	deprecated alias writePrintableString writeString; /// use write() or writePrintableString instead
 
 	private string writeBuffer;
 
-	private void writeStringRaw(in char[] s) {
+	// you really, really shouldn't use this unless you know what you are doing
+	/*private*/ void writeStringRaw(in char[] s) {
 		// FIXME: make sure all the data is sent, check for errors
 		version(Posix) {
 			writeBuffer ~= s; // buffer it to do everything at once in flush() calls
 		} else version(Windows) {
-			DWORD written;
-			/* FIXME: WriteConsoleW */
-			WriteConsoleA(hConsole, s.ptr, s.length, &written, null);
+			writeBuffer ~= s;
 		} else static assert(0);
 	}
 
@@ -868,6 +1013,8 @@ struct RealTimeConsoleInput {
 
 	version(Posix) {
 		private int fd;
+		private sigaction_t oldSigWinch;
+		private sigaction_t oldSigIntr;
 		private termios old;
 		ubyte[128] hack;
 		// apparently termios isn't the size druntime thinks it is (at least on 32 bit, sometimes)....
@@ -897,6 +1044,7 @@ struct RealTimeConsoleInput {
 
 			DWORD mode = 0;
 			mode |= ENABLE_PROCESSED_INPUT /* 0x01 */; // this gives Ctrl+C which we probably want to be similar to linux
+			//if(flags & ConsoleInputFlags.size)
 			mode |= ENABLE_WINDOW_INPUT /* 0208 */; // gives size etc
 			if(flags & ConsoleInputFlags.echo)
 				mode |= ENABLE_ECHO_INPUT; // 0x4
@@ -921,18 +1069,40 @@ struct RealTimeConsoleInput {
 
 		version(Posix) {
 			this.fd = 0; // stdin
-			tcgetattr(fd, &old);
-			auto n = old;
 
-			auto f = ICANON;
-			if(!(flags & ConsoleInputFlags.echo))
-				f |= ECHO;
+			{
+				tcgetattr(fd, &old);
+				auto n = old;
 
-			n.c_lflag &= ~f;
-			tcsetattr(fd, TCSANOW, &n);
+				auto f = ICANON;
+				if(!(flags & ConsoleInputFlags.echo))
+					f |= ECHO;
+
+				n.c_lflag &= ~f;
+				tcsetattr(fd, TCSANOW, &n);
+			}
 
 			// some weird bug breaks this, https://github.com/robik/ConsoleD/issues/3
 			//destructor ~= { tcsetattr(fd, TCSANOW, &old); };
+
+			if(flags & ConsoleInputFlags.size) {
+				import core.sys.posix.signal;
+				sigaction_t n;
+				n.sa_handler = &sizeSignalHandler;
+				n.sa_mask = cast(sigset_t) 0;
+				n.sa_flags = 0;
+				sigaction(SIGWINCH, &n, &oldSigWinch);
+			}
+
+			{
+				import core.sys.posix.signal;
+				sigaction_t n;
+				n.sa_handler = &interruptSignalHandler;
+				n.sa_mask = cast(sigset_t) 0;
+				n.sa_flags = 0;
+				sigaction(SIGINT, &n, &oldSigIntr);
+			}
+
 
 			if(flags & ConsoleInputFlags.mouse) {
 				if(terminal.terminalInFamily("xterm", "rxvt", "screen", "linux")) {
@@ -964,6 +1134,9 @@ struct RealTimeConsoleInput {
 				auto listenTo = this.fd;
 			else static assert(0, "idk about this OS");
 
+			version(Posix)
+			addListener(&signalFired);
+
 			addFileEventListeners(listenTo, &eventListener, null, null);
 			destructor ~= { removeFileEventListeners(listenTo); };
 			addOnIdle(&terminal.flush);
@@ -972,6 +1145,16 @@ struct RealTimeConsoleInput {
 	}
 
 	version(with_eventloop) {
+		version(Posix)
+		void signalFired(SignalFired) {
+			if(interrupted) {
+				interrupted = false;
+				send(InputEvent(UserInterruptionEvent()));
+			}
+			if(windowSizeChanged)
+				send(checkWindowSizeChanged());
+		}
+
 		import arsd.eventloop;
 		void eventListener(OsFileHandle fd) {
 			auto queue = readNextEvents();
@@ -984,6 +1167,15 @@ struct RealTimeConsoleInput {
 		// the delegate thing doesn't actually work for this... for some reason
 		version(Posix)
 			tcsetattr(fd, TCSANOW, &old);
+
+		version(Posix) {
+			if(flags & ConsoleInputFlags.size) {
+				// restoration
+				sigaction(SIGWINCH, &oldSigWinch, null);
+			}
+			sigaction(SIGINT, &oldSigIntr, null);
+		}
+
 		// we're just undoing everything the constructor did, in reverse order, same criteria
 		foreach_reverse(d; destructor)
 			d();
@@ -1025,13 +1217,23 @@ struct RealTimeConsoleInput {
 	//char[128] inputBuffer;
 	//int inputBufferPosition;
 	version(Posix)
-	int nextRaw() {
+	int nextRaw(bool interruptable = false) {
 		char[1] buf;
+		try_again:
 		auto ret = read(fd, buf.ptr, buf.length);
 		if(ret == 0)
 			return 0; // input closed
-		if(ret == -1)
-			throw new Exception("read failed");
+		if(ret == -1) {
+			import core.stdc.errno;
+			if(errno == EINTR)
+				// interrupted by signal call, quite possibly resize or ctrl+c which we want to check for in the event loop
+				if(interruptable)
+					return -1;
+				else
+					goto try_again;
+			else
+				throw new Exception("read failed");
+		}
 
 		//terminal.writef("RAW READ: %d\n", buf[0]);
 
@@ -1067,6 +1269,16 @@ struct RealTimeConsoleInput {
 		return decode(buffer, throwAway);
 	}
 
+	InputEvent checkWindowSizeChanged() {
+		auto oldWidth = terminal.width;
+		auto oldHeight = terminal.height;
+		terminal.updateSize();
+		version(Posix)
+		windowSizeChanged = false;
+		return InputEvent(SizeChangedEvent(oldWidth, oldHeight, terminal.width, terminal.height));
+	}
+
+
 	// character event
 	// non-character key event
 	// paste event
@@ -1085,9 +1297,22 @@ struct RealTimeConsoleInput {
 			return e;
 		}
 
+		wait_for_more:
+		version(Posix)
+		if(interrupted) {
+			interrupted = false;
+			return InputEvent(UserInterruptionEvent());
+		}
+
+		version(Posix)
+		if(windowSizeChanged) {
+			return checkWindowSizeChanged();
+		}
+
 		auto more = readNextEvents();
-		while(!more.length)
-			more = readNextEvents();
+		if(!more.length)
+			goto wait_for_more; // i used to do a loop (readNextEvents can read something, but it might be discarded by the input filter) but now it goto's above because readNextEvents might be interrupted by a SIGWINCH aka size event so we want to check that at least
+
 		assert(more.length);
 
 		auto e = more[0];
@@ -1137,7 +1362,6 @@ struct RealTimeConsoleInput {
 					e.eventType = ev.bKeyDown ? CharacterEvent.Type.Pressed : CharacterEvent.Type.Released;
 					ne.eventType = ev.bKeyDown ? NonCharacterKeyEvent.Type.Pressed : NonCharacterKeyEvent.Type.Released;
 
-					// FIXME standardize
 					e.modifierState = ev.dwControlKeyState;
 					ne.modifierState = ev.dwControlKeyState;
 
@@ -1145,9 +1369,15 @@ struct RealTimeConsoleInput {
 						e.character = cast(dchar) cast(wchar) ev.UnicodeChar;
 						newEvents ~= InputEvent(e);
 					} else {
-						// FIXME actually translate
 						ne.key = cast(NonCharacterKeyEvent.Key) ev.wVirtualKeyCode;
-						newEvents ~= InputEvent(ne);
+
+						// FIXME: make this better. the goal is to make sure the key code is a valid enum member
+						// Windows sends more keys than Unix and we're doing lowest common denominator here
+						foreach(member; __traits(allMembers, NonCharacterKeyEvent.Key))
+							if(__traits(getMember, NonCharacterKeyEvent.Key, member) == ne.key) {
+								newEvents ~= InputEvent(ne);
+								break;
+							}
 					}
 				break;
 				case MOUSE_EVENT:
@@ -1175,14 +1405,20 @@ struct RealTimeConsoleInput {
 							else
 								e.buttons = MouseEvent.Button.ScrollUp;
 						break;
+						default:
 					}
 
 					newEvents ~= InputEvent(e);
 				break;
 				case WINDOW_BUFFER_SIZE_EVENT:
 					auto ev = record.WindowBufferSizeEvent;
-					// FIXME
+					auto oldWidth = terminal.width;
+					auto oldHeight = terminal.height;
+					terminal._width = ev.dwSize.X;
+					terminal._height = ev.dwSize.Y;
+					newEvents ~= InputEvent(SizeChangedEvent(oldWidth, oldHeight, terminal.width, terminal.height));
 				break;
+				// FIXME: can we catch ctrl+c here too?
 				default:
 					// ignore
 			}
@@ -1201,16 +1437,17 @@ struct RealTimeConsoleInput {
 				InputEvent(CharacterEvent(CharacterEvent.Type.Released, character, 0)),
 			];
 		}
-		InputEvent[] keyPressAndRelease(NonCharacterKeyEvent.Key key) {
+		InputEvent[] keyPressAndRelease(NonCharacterKeyEvent.Key key, uint modifiers = 0) {
 			return [
-				InputEvent(NonCharacterKeyEvent(NonCharacterKeyEvent.Type.Pressed, key, 0)),
-				InputEvent(NonCharacterKeyEvent(NonCharacterKeyEvent.Type.Released, key, 0)),
+				InputEvent(NonCharacterKeyEvent(NonCharacterKeyEvent.Type.Pressed, key, modifiers)),
+				InputEvent(NonCharacterKeyEvent(NonCharacterKeyEvent.Type.Released, key, modifiers)),
 			];
 		}
 
+		char[30] sequenceBuffer;
+
 		// this assumes you just read "\033["
-		char[] readEscapeSequence() {
-			char[30] sequence;
+		char[] readEscapeSequence(char[] sequence) {
 			int sequenceLength = 2;
 			sequence[0] = '\033';
 			sequence[1] = '[';
@@ -1309,7 +1546,7 @@ struct RealTimeConsoleInput {
 						if(n == '\033') {
 							n = nextRaw();
 							if(n == '[') {
-								auto esc = readEscapeSequence();
+								auto esc = readEscapeSequence(sequenceBuffer);
 								if(esc == "\033[201~") {
 									// complete!
 									break;
@@ -1361,7 +1598,7 @@ struct RealTimeConsoleInput {
 						m.buttons = 1 << (buttonNumber - 1); // I prefer flags so that's how we do it
 					m.x = x;
 					m.y = y;
-					m.modifierState = modifiers; // FIXME, standardize
+					m.modifierState = modifiers;
 
 					return [InputEvent(m)];
 				break;
@@ -1370,18 +1607,102 @@ struct RealTimeConsoleInput {
 					auto cap = terminal.findSequenceInTermcap(sequence);
 					if(cap !is null)
 						return translateTermcapName(cap);
+					else {
+						if(terminal.terminalInFamily("xterm")) {
+							import std.conv, std.string;
+							auto terminator = sequence[$ - 1];
+							auto parts = sequence[2 .. $ - 1].split(";");
+							// parts[0] and terminator tells us the key
+							// parts[1] tells us the modifierState
+
+							uint modifierState;
+
+							int modGot = to!int(parts[1]);
+							mod_switch: switch(modGot) {
+								case 2: modifierState |= ModifierState.shift; break;
+								case 3: modifierState |= ModifierState.alt; break;
+								case 4: modifierState |= ModifierState.shift | ModifierState.alt; break;
+								case 5: modifierState |= ModifierState.control; break;
+								case 6: modifierState |= ModifierState.shift | ModifierState.control; break;
+								case 7: modifierState |= ModifierState.alt | ModifierState.control; break;
+								case 8: modifierState |= ModifierState.shift | ModifierState.alt | ModifierState.control; break;
+								case 9:
+								..
+								case 16:
+									modifierState |= ModifierState.meta;
+									if(modGot != 9) {
+										modGot -= 8;
+										goto mod_switch;
+									}
+								break;
+
+								// this is an extension in my own terminal emulator
+								case 20:
+								..
+								case 36:
+									modifierState |= ModifierState.windows;
+									modGot -= 20;
+									goto mod_switch;
+								default:
+							}
+
+							switch(terminator) {
+								case 'A': return keyPressAndRelease(NonCharacterKeyEvent.Key.UpArrow, modifierState);
+								case 'B': return keyPressAndRelease(NonCharacterKeyEvent.Key.DownArrow, modifierState);
+								case 'C': return keyPressAndRelease(NonCharacterKeyEvent.Key.RightArrow, modifierState);
+								case 'D': return keyPressAndRelease(NonCharacterKeyEvent.Key.LeftArrow, modifierState);
+
+								case 'H': return keyPressAndRelease(NonCharacterKeyEvent.Key.Home, modifierState);
+								case 'F': return keyPressAndRelease(NonCharacterKeyEvent.Key.End, modifierState);
+
+								case 'P': return keyPressAndRelease(NonCharacterKeyEvent.Key.F1, modifierState);
+								case 'Q': return keyPressAndRelease(NonCharacterKeyEvent.Key.F2, modifierState);
+								case 'R': return keyPressAndRelease(NonCharacterKeyEvent.Key.F3, modifierState);
+								case 'S': return keyPressAndRelease(NonCharacterKeyEvent.Key.F4, modifierState);
+
+								case '~': // others
+									switch(parts[0]) {
+										case "5": return keyPressAndRelease(NonCharacterKeyEvent.Key.PageUp, modifierState);
+										case "6": return keyPressAndRelease(NonCharacterKeyEvent.Key.PageDown, modifierState);
+										case "2": return keyPressAndRelease(NonCharacterKeyEvent.Key.Insert, modifierState);
+										case "3": return keyPressAndRelease(NonCharacterKeyEvent.Key.Delete, modifierState);
+
+										case "15": return keyPressAndRelease(NonCharacterKeyEvent.Key.F5, modifierState);
+										case "17": return keyPressAndRelease(NonCharacterKeyEvent.Key.F6, modifierState);
+										case "18": return keyPressAndRelease(NonCharacterKeyEvent.Key.F7, modifierState);
+										case "19": return keyPressAndRelease(NonCharacterKeyEvent.Key.F8, modifierState);
+										case "20": return keyPressAndRelease(NonCharacterKeyEvent.Key.F9, modifierState);
+										case "21": return keyPressAndRelease(NonCharacterKeyEvent.Key.F10, modifierState);
+										case "23": return keyPressAndRelease(NonCharacterKeyEvent.Key.F11, modifierState);
+										case "24": return keyPressAndRelease(NonCharacterKeyEvent.Key.F12, modifierState);
+										default:
+									}
+								break;
+
+								default:
+							}
+						} else if(terminal.terminalInFamily("rxvt")) {
+							// FIXME: figure these out. rxvt seems to just change the terminator while keeping the rest the same
+							// though it isn't consistent. ugh.
+						} else {
+							// maybe we could do more terminals, but linux doesn't even send it and screen just seems to pass through, so i don't think so; xterm prolly covers most them anyway
+							// so this space is semi-intentionally left blank
+						}
+					}
 			}
 
 			return null;
 		}
 
-		auto c = nextRaw();
+		auto c = nextRaw(true);
+		if(c == -1)
+			return null; // interrupted; give back nothing so the other level can recheck signal flags
 		if(c == '\033') {
 			if(timedCheckForInput(50)) {
 				// escape sequence
 				c = nextRaw();
 				if(c == '[') { // CSI, ends on anything >= 'A'
-					return doEscapeSequence(readEscapeSequence());
+					return doEscapeSequence(readEscapeSequence(sequenceBuffer));
 				} else if(c == 'O') {
 					// could be xterm function key
 					auto n = nextRaw();
@@ -1424,7 +1745,7 @@ struct CharacterEvent {
 
 	Type eventType; /// .
 	dchar character; /// .
-	uint modifierState; /// .
+	uint modifierState; /// Don't depend on this to be available for character events
 }
 
 struct NonCharacterKeyEvent {
@@ -1465,7 +1786,7 @@ struct NonCharacterKeyEvent {
 		}
 	Key key; /// .
 
-	uint modifierState; /// .
+	uint modifierState; /// A mask of ModifierState. Always use by checking modifierState & ModifierState.something, the actual value differs across platforms
 
 }
 
@@ -1498,10 +1819,46 @@ struct MouseEvent {
 	uint buttons; /// A mask of Button
 	int x; /// 0 == left side
 	int y; /// 0 == top
-	uint modifierState; /// shift, ctrl, alt, meta, altgr
+	uint modifierState; /// shift, ctrl, alt, meta, altgr. Not always available. Always check by using modifierState & ModifierState.something
 }
 
+/// .
+struct SizeChangedEvent {
+	int oldWidth;
+	int oldHeight;
+	int newWidth;
+	int newHeight;
+}
+
+/// the user hitting ctrl+c will send this
+struct UserInterruptionEvent {}
+
 interface CustomEvent {}
+
+version(Windows)
+enum ModifierState : uint {
+	shift = 0x10,
+	control = 0x8 | 0x4, // 8 == left ctrl, 4 == right ctrl
+
+	// i'm not sure if the next two are available
+	alt = 2 | 1, //2 ==left alt, 1 == right alt
+
+	// FIXME: I don't think these are actually available
+	windows = 512,
+	meta = 4096, // FIXME sanity
+
+	// I don't think this is available on Linux....
+	scrollLock = 0x40,
+}
+else
+enum ModifierState : uint {
+	shift = 4,
+	alt = 2,
+	control = 16,
+	meta = 8,
+
+	windows = 512 // only available if you are using my terminal emulator; it isn't actually offered on standard linux ones
+}
 
 /// GetNextEvent returns this. Check the type, then use get to get the more detailed input
 struct InputEvent {
@@ -1510,8 +1867,10 @@ struct InputEvent {
 		CharacterEvent, ///.
 		NonCharacterKeyEvent, /// .
 		PasteEvent, /// .
-		MouseEvent, /// .
-		CustomEvent
+		MouseEvent, /// only sent if you subscribed to mouse events
+		SizeChangedEvent, /// only sent if you subscribed to size events
+		UserInterruptionEvent, /// the user hit ctrl+c
+		CustomEvent /// .
 	}
 
 	/// .
@@ -1529,6 +1888,10 @@ struct InputEvent {
 			return pasteEvent;
 		else static if(T == Type.MouseEvent)
 			return mouseEvent;
+		else static if(T == Type.SizeChangedEvent)
+			return sizeChangedEvent;
+		else static if(T == Type.UserInterruptionEvent)
+			return userInterruptionEvent;
 		else static if(T == Type.CustomEvent)
 			return customEvent;
 		else static assert(0, "Type " ~ T.stringof ~ " not added to the get function");
@@ -1551,6 +1914,14 @@ struct InputEvent {
 			t = Type.MouseEvent;
 			mouseEvent = c;
 		}
+		this(SizeChangedEvent c) {
+			t = Type.SizeChangedEvent;
+			sizeChangedEvent = c;
+		}
+		this(UserInterruptionEvent c) {
+			t = Type.UserInterruptionEvent;
+			userInterruptionEvent = c;
+		}
 		this(CustomEvent c) {
 			t = Type.CustomEvent;
 			customEvent = c;
@@ -1563,6 +1934,8 @@ struct InputEvent {
 			NonCharacterKeyEvent nonCharacterKeyEvent;
 			PasteEvent pasteEvent;
 			MouseEvent mouseEvent;
+			SizeChangedEvent sizeChangedEvent;
+			UserInterruptionEvent userInterruptionEvent;
 			CustomEvent customEvent;
 		}
 	}
@@ -1573,9 +1946,10 @@ void main() {
 	auto terminal = Terminal(ConsoleOutputType.linear);
 
 	terminal.setTitle("Basic I/O");
-	auto input = RealTimeConsoleInput(&terminal, ConsoleInputFlags.raw | ConsoleInputFlags.mouse | ConsoleInputFlags.paste);
+	auto input = RealTimeConsoleInput(&terminal, ConsoleInputFlags.raw | ConsoleInputFlags.allInputEvents);
 
 	terminal.color(Color.green | Bright, Color.black);
+	//terminal.color(Color.DEFAULT, Color.DEFAULT);
 
 	terminal.write("test some long string to see if it wraps or what because i dont really know what it is going to do so i just want to test i think it will wrap but gotta be sure lolololololololol");
 	terminal.writefln("%d %d", terminal.cursorX, terminal.cursorY);
@@ -1588,6 +1962,17 @@ void main() {
 	void handleEvent(InputEvent event) {
 		terminal.writef("%s\n", event.type);
 		final switch(event.type) {
+			case InputEvent.Type.UserInterruptionEvent:
+				timeToBreak = true;
+				version(with_eventloop) {
+					import arsd.eventloop;
+					exit();
+				}
+			break;
+			case InputEvent.Type.SizeChangedEvent:
+				auto ev = event.get!(InputEvent.Type.SizeChangedEvent);
+				terminal.writeln(ev);
+			break;
 			case InputEvent.Type.CharacterEvent:
 				auto ev = event.get!(InputEvent.Type.CharacterEvent);
 				terminal.writef("\t%s\n", ev);
@@ -1644,3 +2029,80 @@ void main() {
 	}
 }
 
+
+/*
+
+	// more efficient scrolling
+	http://msdn.microsoft.com/en-us/library/windows/desktop/ms685113%28v=vs.85%29.aspx
+	// and the unix sequences
+
+
+	rxvt documentation:
+	use this to finish the input magic for that
+
+
+       For the keypad, use Shift to temporarily override Application-Keypad
+       setting use Num_Lock to toggle Application-Keypad setting if Num_Lock
+       is off, toggle Application-Keypad setting. Also note that values of
+       Home, End, Delete may have been compiled differently on your system.
+
+                         Normal       Shift         Control      Ctrl+Shift
+       Tab               ^I           ESC [ Z       ^I           ESC [ Z
+       BackSpace         ^H           ^?            ^?           ^?
+       Find              ESC [ 1 ~    ESC [ 1 $     ESC [ 1 ^    ESC [ 1 @
+       Insert            ESC [ 2 ~    paste         ESC [ 2 ^    ESC [ 2 @
+       Execute           ESC [ 3 ~    ESC [ 3 $     ESC [ 3 ^    ESC [ 3 @
+       Select            ESC [ 4 ~    ESC [ 4 $     ESC [ 4 ^    ESC [ 4 @
+       Prior             ESC [ 5 ~    scroll-up     ESC [ 5 ^    ESC [ 5 @
+       Next              ESC [ 6 ~    scroll-down   ESC [ 6 ^    ESC [ 6 @
+       Home              ESC [ 7 ~    ESC [ 7 $     ESC [ 7 ^    ESC [ 7 @
+       End               ESC [ 8 ~    ESC [ 8 $     ESC [ 8 ^    ESC [ 8 @
+       Delete            ESC [ 3 ~    ESC [ 3 $     ESC [ 3 ^    ESC [ 3 @
+       F1                ESC [ 11 ~   ESC [ 23 ~    ESC [ 11 ^   ESC [ 23 ^
+       F2                ESC [ 12 ~   ESC [ 24 ~    ESC [ 12 ^   ESC [ 24 ^
+       F3                ESC [ 13 ~   ESC [ 25 ~    ESC [ 13 ^   ESC [ 25 ^
+       F4                ESC [ 14 ~   ESC [ 26 ~    ESC [ 14 ^   ESC [ 26 ^
+       F5                ESC [ 15 ~   ESC [ 28 ~    ESC [ 15 ^   ESC [ 28 ^
+       F6                ESC [ 17 ~   ESC [ 29 ~    ESC [ 17 ^   ESC [ 29 ^
+       F7                ESC [ 18 ~   ESC [ 31 ~    ESC [ 18 ^   ESC [ 31 ^
+       F8                ESC [ 19 ~   ESC [ 32 ~    ESC [ 19 ^   ESC [ 32 ^
+       F9                ESC [ 20 ~   ESC [ 33 ~    ESC [ 20 ^   ESC [ 33 ^
+       F10               ESC [ 21 ~   ESC [ 34 ~    ESC [ 21 ^   ESC [ 34 ^
+       F11               ESC [ 23 ~   ESC [ 23 $    ESC [ 23 ^   ESC [ 23 @
+       F12               ESC [ 24 ~   ESC [ 24 $    ESC [ 24 ^   ESC [ 24 @
+       F13               ESC [ 25 ~   ESC [ 25 $    ESC [ 25 ^   ESC [ 25 @
+       F14               ESC [ 26 ~   ESC [ 26 $    ESC [ 26 ^   ESC [ 26 @
+       F15 (Help)        ESC [ 28 ~   ESC [ 28 $    ESC [ 28 ^   ESC [ 28 @
+       F16 (Menu)        ESC [ 29 ~   ESC [ 29 $    ESC [ 29 ^   ESC [ 29 @
+
+       F17               ESC [ 31 ~   ESC [ 31 $    ESC [ 31 ^   ESC [ 31 @
+       F18               ESC [ 32 ~   ESC [ 32 $    ESC [ 32 ^   ESC [ 32 @
+       F19               ESC [ 33 ~   ESC [ 33 $    ESC [ 33 ^   ESC [ 33 @
+       F20               ESC [ 34 ~   ESC [ 34 $    ESC [ 34 ^   ESC [ 34 @
+                                                                 Application
+       Up                ESC [ A      ESC [ a       ESC O a      ESC O A
+       Down              ESC [ B      ESC [ b       ESC O b      ESC O B
+       Right             ESC [ C      ESC [ c       ESC O c      ESC O C
+       Left              ESC [ D      ESC [ d       ESC O d      ESC O D
+       KP_Enter          ^M                                      ESC O M
+       KP_F1             ESC O P                                 ESC O P
+       KP_F2             ESC O Q                                 ESC O Q
+       KP_F3             ESC O R                                 ESC O R
+       KP_F4             ESC O S                                 ESC O S
+       XK_KP_Multiply    *                                       ESC O j
+       XK_KP_Add         +                                       ESC O k
+       XK_KP_Separator   ,                                       ESC O l
+       XK_KP_Subtract    -                                       ESC O m
+       XK_KP_Decimal     .                                       ESC O n
+       XK_KP_Divide      /                                       ESC O o
+       XK_KP_0           0                                       ESC O p
+       XK_KP_1           1                                       ESC O q
+       XK_KP_2           2                                       ESC O r
+       XK_KP_3           3                                       ESC O s
+       XK_KP_4           4                                       ESC O t
+       XK_KP_5           5                                       ESC O u
+       XK_KP_6           6                                       ESC O v
+       XK_KP_7           7                                       ESC O w
+       XK_KP_8           8                                       ESC O x
+       XK_KP_9           9                                       ESC O y
+*/
