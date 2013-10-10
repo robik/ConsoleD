@@ -885,6 +885,7 @@ else version(Posix)
     {
         ConsoleInputMode cim;
         termios tio;
+	ubyte[100] hack;
         
         tcgetattr(stdinFd, &tio);
         cim.echo = !!(tio.c_lflag & ECHO);
@@ -902,6 +903,7 @@ else version(Posix)
     void mode(ConsoleInputMode cim) @property
     {
         termios tio;
+	ubyte[100] hack;
         
         tcgetattr(stdinFd, &tio);
         
