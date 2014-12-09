@@ -4,4 +4,4 @@ This fork is created in order to fix a few errors, introduced by newer D version
 
 A major change is migration to dub
 
-[https://github.com/robik/ConsoleD](Visit the original project page)
+[Visit the original project page](https://github.com/robik/ConsoleD)

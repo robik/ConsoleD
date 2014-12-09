@@ -2,5 +2,6 @@
 	"name": "consoled",
 	"description": "Because colors are awesome.",
 	"authors": ["robik", "quickfur", "Adam D. Ruppe", "Ianis G. Vasilev"],
-	"targetType": "library"
+	"targetType": "library",
+	"license": "Boost License"
 }
