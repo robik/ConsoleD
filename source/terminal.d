@@ -817,9 +817,9 @@ http://msdn.microsoft.com/en-us/library/windows/desktop/ms683193%28v=vs.85%29.as
 		version(Windows) {
 			CONSOLE_SCREEN_BUFFER_INFO info;
 			GetConsoleScreenBufferInfo( hConsole, &info );
-        
+
 			int cols, rows;
-        
+
 			cols = (info.srWindow.Right - info.srWindow.Left + 1);
 			rows = (info.srWindow.Bottom - info.srWindow.Top + 1);
 
@@ -891,7 +891,7 @@ http://msdn.microsoft.com/en-us/library/windows/desktop/ms683193%28v=vs.85%29.as
 
 	/+
 	/// A combined moveTo and writef that puts the cursor back where it was before when it finishes the write.
-	/// Only works in cellular mode. 
+	/// Only works in cellular mode.
 	/// Might give better performance than moveTo/writef because if the data to write matches the internal buffer, it skips sending anything (to override the buffer check, you can use moveTo and writePrintableString with ForceOption.alwaysSend)
 	void writefAt(T...)(int x, int y, string f, T t) {
 		import std.string;
@@ -1266,7 +1266,7 @@ struct RealTimeConsoleInput {
 
 		import std.utf;
 		size_t throwAway; // it insists on the index but we don't care
-		return decode(buffer, throwAway);
+		return decode(cast(string)buffer, throwAway);
 	}
 
 	InputEvent checkWindowSizeChanged() {
@@ -1563,7 +1563,7 @@ struct RealTimeConsoleInput {
 						}
 					}
 					return [InputEvent(PasteEvent(data))];
-				break;
+
 				case "\033[M":
 					// mouse event
 					auto buttonCode = nextRaw();
@@ -1601,7 +1601,7 @@ struct RealTimeConsoleInput {
 					m.modifierState = modifiers;
 
 					return [InputEvent(m)];
-				break;
+
 				default:
 					// look it up in the termcap key database
 					auto cap = terminal.findSequenceInTermcap(sequence);
