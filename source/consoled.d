@@ -1040,7 +1040,7 @@ else version(Posix)
  * Returns:
  *  Console width as number of columns
  */
-int width()
+@property int width()
 {
     return size.x;
 }
@@ -1051,7 +1051,7 @@ int width()
  * Returns:
  *  Console height as number of rows
  */
-int height()
+@property int height()
 {
     return size.y;
 }
@@ -1197,7 +1197,6 @@ void clearScreen()
     write( std.array.replicate(" ", length));
     stdout.flush();
 }
-
 
 /**
  * Brings default colors back

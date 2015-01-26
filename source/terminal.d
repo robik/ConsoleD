@@ -2487,8 +2487,8 @@ class LineGetter {
 	/// You may override this to do nothing
 	void saveSettingsAndHistoryToFile() {
 		import std.file;
-		if(!exists(historyFileDirectory))
-			mkdir(historyFileDirectory);
+		if(!exists(historyFileDirectory()))
+			mkdir(historyFileDirectory());
 		auto fn = historyPath();
 		import std.stdio;
 		auto file = File(fn, "wt");
@@ -2509,7 +2509,7 @@ class LineGetter {
 		auto fn = historyPath();
 		if(exists(fn)) {
 			import std.stdio;
-			foreach(line; File(fn, "rt").byLine)
+			foreach(line; File(fn, "rt").byLine())
 				history ~= line.idup;
 
 		}
