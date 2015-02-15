@@ -1180,7 +1180,7 @@ void drawVerticalLine(ConsolePoint pos, int length, char border)
  */
 void writeAt(T)(ConsolePoint point, T data)
 {
-    setConsoleCursor(point.x, point.y);
+    setCursorPos(point.x, point.y);
     write(data);
     stdout.flush();
 }
