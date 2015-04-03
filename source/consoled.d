@@ -489,7 +489,12 @@ version(Windows)
         
         do {
             ReadConsoleInputA(hInput, &ir, 1, &count);
-        } while(ir.EventType != KEY_EVENT || !ir.KeyEvent.bKeyDown);
+        } while((ir.EventType != KEY_EVENT || !ir.KeyEvent.bKeyDown) && kbhit());
+	// the extra kbhit is to filter out events AFTER the keydown
+	// to ensure next time we call this, we're back on a fresh keydown
+	// event. Without that, the key up event will trigger kbhit, then
+	// you call getch(), and it blocks because it read keyup then looped
+	// and is waiting for another keydown.
         
         mode = m;
         
