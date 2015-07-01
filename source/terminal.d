@@ -930,7 +930,7 @@ http://msdn.microsoft.com/en-us/library/windows/desktop/ms683193%28v=vs.85%29.as
 			while(writeBuffer.length) {
 				DWORD written;
 				/* FIXME: WriteConsoleW */
-				WriteConsoleA(hConsole, writeBuffer.ptr, writeBuffer.length, &written, null);
+				WriteConsoleA(hConsole, writeBuffer.ptr, cast(uint)writeBuffer.length, &written, null);
 				writeBuffer = writeBuffer[written .. $];
 			}
 		}
