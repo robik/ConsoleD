@@ -1,6 +1,8 @@
 /**
  * Provides simple API for coloring and formatting text in terminal.
  * On Windows OS it uses WinAPI functions, on POSIX systems it uses mainly ANSI codes.
+ *
+ * Using terminal.d is recommended as it is more mature and stable.
  * 
  * $(B Important notes):
  * $(UL
@@ -925,6 +927,8 @@ else version(Posix)
      */
     int getch(bool echo = false)
     {
+        import std.ascii : toUpper;
+    
         int c;
         string buf;
         ConsoleInputMode m;
@@ -949,7 +953,7 @@ else version(Posix)
         
         mode = m;
         
-        return c;
+        return c.toUpper();
     }
     
     /**
