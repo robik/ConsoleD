@@ -5,7 +5,7 @@
 	The main interface for this module is the Terminal struct, which
 	encapsulates the output functions and line-buffered input of the terminal, and
 	RealTimeConsoleInput, which gives real time input.
-	
+
 	Creating an instance of these structs will perform console initialization. When the struct
 	goes out of scope, any changes in console settings will be automatically reverted.
 
@@ -1024,7 +1024,7 @@ http://msdn.microsoft.com/en-us/library/windows/desktop/ms683193%28v=vs.85%29.as
 			wstring writeBufferw = to!wstring(writeBuffer);
 			while(writeBufferw.length) {
 				DWORD written;
-				WriteConsoleW(hConsole, writeBufferw.ptr, writeBufferw.length, &written, null);
+				WriteConsoleW(hConsole, writeBufferw.ptr, cast(uint) writeBufferw.length, &written, null);
 				writeBufferw = writeBufferw[written .. $];
 			}
 
@@ -1036,9 +1036,9 @@ http://msdn.microsoft.com/en-us/library/windows/desktop/ms683193%28v=vs.85%29.as
 		version(Windows) {
 			CONSOLE_SCREEN_BUFFER_INFO info;
 			GetConsoleScreenBufferInfo( hConsole, &info );
-        
+
 			int cols, rows;
-        
+
 			cols = (info.srWindow.Right - info.srWindow.Left + 1);
 			rows = (info.srWindow.Bottom - info.srWindow.Top + 1);
 
@@ -1112,7 +1112,7 @@ http://msdn.microsoft.com/en-us/library/windows/desktop/ms683193%28v=vs.85%29.as
 
 	/+
 	/// A combined moveTo and writef that puts the cursor back where it was before when it finishes the write.
-	/// Only works in cellular mode. 
+	/// Only works in cellular mode.
 	/// Might give better performance than moveTo/writef because if the data to write matches the internal buffer, it skips sending anything (to override the buffer check, you can use moveTo and writePrintableString with ForceOption.alwaysSend)
 	void writefAt(T...)(int x, int y, string f, T t) {
 		import std.string;
@@ -3110,7 +3110,7 @@ class LineGetter {
 				/* Insert the character (unless it is backspace, tab, or some other control char) */
 				auto ch = ev.which;
 				switch(ch) {
-					case 4: // ctrl+d will also send a newline-equivalent 
+					case 4: // ctrl+d will also send a newline-equivalent
 					case '\r':
 					case '\n':
 						justHitTab = false;
@@ -3552,7 +3552,7 @@ struct ScrollbackBuffer {
 				linePos++;
 				continue;
 			}
-		
+
 			terminal.moveTo(x, y + ((linePos >= 0) ? linePos : 0));
 
 			auto todo = line.components;
