@@ -1289,6 +1289,8 @@ void writec(T...)(T params)
             foreground = param.val;
         } else static if(is(typeof(param) == Bg)) {
             background = param.val;
+        } else static if(is(typeof(param) == FontStyle)) {
+            fontStyle = param;
         } else {
             write(param);
         }

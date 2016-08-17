@@ -103,7 +103,7 @@ import std.stdio, consoled;
 
 void main()
 {
-    writecln("Hello ", Fg.blue, "World", Bg.red, "!");
+    writecln("Hello ", Fg.blue, FontStyle.bold, "World", Bg.red, "!");
     resetColors();
 }
 ```
