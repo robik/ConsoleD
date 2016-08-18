@@ -81,14 +81,14 @@ void main()
 
 #### Font Styles
 
-You can change font styles, like `strikethrough` and `underline`. This feature is Posix only, when called on windows, nothing happens.
+You can change font styles, like `strikethrough`, `underline` and `bold`. This feature is Posix only, when called on windows, nothing happens.
 
 ```D
 import std.stdio, consoled;
 
 void main()
 {
-    fontStyle = FontStyle.underline | FontStyle.strikethrough;
+    fontStyle = FontStyle.underline | FontStyle.strikethrough | FontStyle.bold;
     writeln("foo");
     resetFontStyle(); // Or just fontStyle = FontStyle.none;
 }

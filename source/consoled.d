@@ -41,7 +41,8 @@ enum FontStyle
 {
     none          = 0, /// Default
     underline     = 1, /// Underline
-    strikethrough = 2  /// Characters legible, but marked for deletion. Not widely supported.
+    strikethrough = 2, /// Characters legible, but marked for deletion. Not widely supported.
+    bold          = 4  /// Bold
 }
 
 alias void delegate(CloseEvent) @system CloseHandler;
@@ -586,7 +587,10 @@ else version(Posix)
         UNDERLINE_DISABLE = 24,
 
         STRIKE_ENABLE     = 9,
-        STRIKE_DISABLE    = 29
+        STRIKE_DISABLE    = 29,
+
+        BOLD_ENABLE       = 1,
+        BOLD_DISABLE      = 21
     }
 
     ///
@@ -660,13 +664,14 @@ else version(Posix)
 
     private void printAnsi()
     {
-        stream.writef("\033[%d;%d;%d;%d;%dm",
+        stream.writef("\033[%d;%d;%d;%d;%d;%dm",
             fg &  Color.bright ? 1 : 0,
             fg & ~Color.bright,
             (bg & ~Color.bright) + 10, // Background colors are normal + 10
 
             currentFontStyle & FontStyle.underline     ? UNDERLINE_ENABLE : UNDERLINE_DISABLE,
-            currentFontStyle & FontStyle.strikethrough ? STRIKE_ENABLE    : STRIKE_DISABLE
+            currentFontStyle & FontStyle.strikethrough ? STRIKE_ENABLE    : STRIKE_DISABLE,
+            currentFontStyle & FontStyle.bold          ? BOLD_ENABLE      : BOLD_DISABLE
         );
     }
 
