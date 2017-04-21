@@ -3,5 +3,8 @@
 	"description": "Because colors are awesome.",
 	"authors": ["robik", "quickfur", "Adam D. Ruppe", "Ianis G. Vasilev"],
 	"targetType": "library",
-	"license": "Boost License"
+	"license": "Boost License",
+	"dependencies": {
+		"arsd-official:terminal":"~master"
+	}
 }

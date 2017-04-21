@@ -1,8 +1,9 @@
 /**
- * Provides simple API for coloring and formatting text in terminal.
+ * Using arsd.terminal.d is recommended as it is more mature and stable.
+ *
+ * Provides simple API for coloring and formatting text in arsd.terminal.
  * On Windows OS it uses WinAPI functions, on POSIX systems it uses mainly ANSI codes.
  *
- * Using terminal.d is recommended as it is more mature and stable.
  *
  * $(B Important notes):
  * $(UL
@@ -18,7 +19,6 @@
 module consoled;
 
 import std.typecons, std.algorithm;
-import std.array : replicate;
 
 
 /// Console output stream
@@ -567,7 +567,7 @@ version(Windows)
 ////////////////////////////////////////////////////////////////////////
 else version(Posix)
 {
-    static import terminal;
+    static import arsd.terminal;
     import std.stdio,
             std.conv,
             std.string,
@@ -1082,35 +1082,31 @@ else version(Posix)
  */
 string readPassword(char mask = '*')
 {
-    string pass;
-    int c;
-
-    version(Windows)
-    {
-        int backspace = 8;
-        int enter = 13;
-    }
-    version(Posix)
-    {
-        int backspace = 127;
-        int enter = 10;
-    }
-
-    while((c = getch()) != enter)
-    {
-        if(c == backspace) {
-            if(pass.length > 0) {
-                pass = pass[0..$-1];
-                write("\b \b");
-                stdout.flush();
-            }
-        } else {
-            pass ~= cast(char)c;
-            write(mask);
-        }
-    }
-
-    return pass;
+	// import terminal;
+	static import arsd.terminal;
+	auto term = Terminal(ConsoleOutputType.linear);
+	auto input = RealTimeConsoleInput(&term, ConsoleInputFlags.raw);
+	string pass;
+	dchar ch;
+	ch = input.getch();
+	while(ch != '\r' && ch != '\n')
+	{
+		import std.range;
+		if(ch == '\b' && !pass.empty)
+		{
+			pass = pass[0..$-1];
+			write('\b');
+			stdout.flush;
+		}
+		else
+		{
+			pass ~= ch;
+			write(mask);
+			stdout.flush();
+		}
+		ch = input.getch();
+	}
+	return pass;
 }
 
 
