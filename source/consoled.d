@@ -1,8 +1,9 @@
 /**
- * Provides simple API for coloring and formatting text in terminal.
+ * Using arsd.terminal.d is recommended as it is more mature and stable.
+ *
+ * Provides simple API for coloring and formatting text in arsd.terminal.
  * On Windows OS it uses WinAPI functions, on POSIX systems it uses mainly ANSI codes.
  *
- * Using terminal.d is recommended as it is more mature and stable.
  *
  * $(B Important notes):
  * $(UL
@@ -18,7 +19,6 @@
 module consoled;
 
 import std.typecons, std.algorithm;
-import std.array : replicate;
 
 
 /// Console output stream
@@ -41,7 +41,8 @@ enum FontStyle
 {
     none          = 0, /// Default
     underline     = 1, /// Underline
-    strikethrough = 2  /// Characters legible, but marked for deletion. Not widely supported.
+    strikethrough = 2, /// Characters legible, but marked for deletion. Not widely supported.
+    bold          = 4  /// Bold
 }
 
 alias void delegate(CloseEvent) @system CloseHandler;
@@ -566,7 +567,7 @@ version(Windows)
 ////////////////////////////////////////////////////////////////////////
 else version(Posix)
 {
-    static import terminal;
+    static import arsd.terminal;
     import std.stdio,
             std.conv,
             std.string,
@@ -586,7 +587,10 @@ else version(Posix)
         UNDERLINE_DISABLE = 24,
 
         STRIKE_ENABLE     = 9,
-        STRIKE_DISABLE    = 29
+        STRIKE_DISABLE    = 29,
+
+        BOLD_ENABLE       = 1,
+        BOLD_DISABLE      = 21
     }
 
     ///
@@ -660,13 +664,14 @@ else version(Posix)
 
     private void printAnsi()
     {
-        stream.writef("\033[%d;%d;%d;%d;%dm",
+        stream.writef("\033[%d;%d;%d;%d;%d;%dm",
             fg &  Color.bright ? 1 : 0,
             fg & ~Color.bright,
             (bg & ~Color.bright) + 10, // Background colors are normal + 10
 
             currentFontStyle & FontStyle.underline     ? UNDERLINE_ENABLE : UNDERLINE_DISABLE,
-            currentFontStyle & FontStyle.strikethrough ? STRIKE_ENABLE    : STRIKE_DISABLE
+            currentFontStyle & FontStyle.strikethrough ? STRIKE_ENABLE    : STRIKE_DISABLE,
+            currentFontStyle & FontStyle.bold          ? BOLD_ENABLE      : BOLD_DISABLE
         );
     }
 
@@ -1077,35 +1082,31 @@ else version(Posix)
  */
 string readPassword(char mask = '*')
 {
-    string pass;
-    int c;
-
-    version(Windows)
-    {
-        int backspace = 8;
-        int enter = 13;
-    }
-    version(Posix)
-    {
-        int backspace = 127;
-        int enter = 10;
-    }
-
-    while((c = getch()) != enter)
-    {
-        if(c == backspace) {
-            if(pass.length > 0) {
-                pass = pass[0..$-1];
-                write("\b \b");
-                stdout.flush();
-            }
-        } else {
-            pass ~= cast(char)c;
-            write(mask);
-        }
-    }
-
-    return pass;
+	// import terminal;
+	static import arsd.terminal;
+	auto term = Terminal(ConsoleOutputType.linear);
+	auto input = RealTimeConsoleInput(&term, ConsoleInputFlags.raw);
+	string pass;
+	dchar ch;
+	ch = input.getch();
+	while(ch != '\r' && ch != '\n')
+	{
+		import std.range;
+		if(ch == '\b' && !pass.empty)
+		{
+			pass = pass[0..$-1];
+			write('\b');
+			stdout.flush;
+		}
+		else
+		{
+			pass ~= ch;
+			write(mask);
+			stdout.flush();
+		}
+		ch = input.getch();
+	}
+	return pass;
 }
 
 
@@ -1289,6 +1290,8 @@ void writec(T...)(T params)
             foreground = param.val;
         } else static if(is(typeof(param) == Bg)) {
             background = param.val;
+        } else static if(is(typeof(param) == FontStyle)) {
+            fontStyle = param;
         } else {
             write(param);
         }
