@@ -1,11 +1,11 @@
 /++
-	Module for supporting cursor and color manipulation on the console as well
-	as full-featured real-time input.
+	Module for interacting with the user's terminal, including color output, cursor manipulation, and full-featured real-time mouse and keyboard input. Also includes high-level convenience methods, like [Terminal.getline], which gives the user a line editor with history, completion, etc. See the [#examples].
+
 
 	The main interface for this module is the Terminal struct, which
 	encapsulates the output functions and line-buffered input of the terminal, and
 	RealTimeConsoleInput, which gives real time input.
-
+	
 	Creating an instance of these structs will perform console initialization. When the struct
 	goes out of scope, any changes in console settings will be automatically reverted.
 
@@ -19,7 +19,8 @@
 	On Mac Terminal btw, a lot of hacks are needed and mouse support doesn't work. Most functions basically
 	work now though.
 
-	ROADMAP:
+	Future_Roadmap:
+	$(LIST
 		* The CharacterEvent and NonCharacterKeyEvent types will be removed. Instead, use KeyboardEvent
 		  on new programs.
 
@@ -36,16 +37,20 @@
 		* The module will eventually be renamed to `arsd.terminal`.
 
 		* More documentation.
+	)
 
 	WHAT I WON'T DO:
+	$(LIST
 		* support everything under the sun. If it isn't default-installed on an OS I or significant number of other people
 		  might actually use, and isn't written by me, I don't really care about it. This means the only supported terminals are:
+		  $(LIST
 
-		  - xterm (and decently xterm compatible emulators like Konsole)
-		  - Windows console
-		  - rxvt (to a lesser extent)
-		  - Linux console
-		  - My terminal emulator family of applications <https://github.com/adamdruppe/terminal-emulator>
+		  * xterm (and decently xterm compatible emulators like Konsole)
+		  * Windows console
+		  * rxvt (to a lesser extent)
+		  * Linux console
+		  * My terminal emulator family of applications https://github.com/adamdruppe/terminal-emulator
+		  )
 
 		  Anything else is cool if it does work, but I don't want to go out of my way for it.
 
@@ -54,8 +59,39 @@
 
 		* Do a full TUI widget set. I might do some basics and lay a little groundwork, but a full TUI
 		  is outside the scope of this module (unless I can do it really small.)
+	)
 +/
-module terminal;
+module arsd.terminal;
+
+/++
+	This example will demonstrate the high-level getline interface.
+
+	The user will be able to type a line and navigate around it with cursor keys and even the mouse on some systems, as well as perform editing as they expect (e.g. the backspace and delete keys work normally) until they press enter. Then, the final line will be returned to your program, which the example will simply print back to the user.
++/
+unittest {
+	import arsd.terminal;
+
+	void main() {
+		auto terminal = Terminal(ConsoleOutputType.linear);
+		string line = terminal.getline();
+		terminal.writeln("You wrote: ", line);
+	}
+}
+
+/++
+	This example demonstrates color output, using [Terminal.color]
+	and the output functions like [Terminal.writeln].
++/
+unittest {
+	import arsd.terminal;
+	void main() {
+		auto terminal = Terminal(ConsoleOutputType.linear);
+		terminal.color(Color.green, Color.black);
+		terminal.writeln("Hello world, in green on black!");
+		terminal.color(Color.DEFAULT, Color.DEFAULT);
+		terminal.writeln("And back to normal.");
+	}
+}
 
 /*
 	Widgets:
@@ -288,7 +324,7 @@ Eterm|Eterm Terminal Emulator (X11 Window System):\
         :sc=\E7:se=\E[27m:sf=^J:so=\E[7m:sr=\EM:st=\EH:ta=^I:\
         :te=\E[2J\E[?47l\E8:ti=\E7\E[?47h:ue=\E[24m:up=\E[A:\
         :us=\E[4m:vb=\E[?5h\E[?5l:ve=\E[?25h:vi=\E[?25l:\
-        :ac=``aaffggiijjkkllmmnnooppqqrrssttuuvvwwxxyyzz{{||}}~~:
+        :ac=aaffggiijjkkllmmnnooppqqrrssttuuvvwwxxyyzz{{||}}~~:
 
 # DOS terminal emulator such as Telix or TeleMate.
 # This probably also works for the SCO console, though it's incomplete.
@@ -362,6 +398,7 @@ enum ForceOption {
 /// Warning: do not write out escape sequences to the terminal. This won't work
 /// on Windows and will confuse Terminal's internal state on Posix.
 struct Terminal {
+	///
 	@disable this();
 	@disable this(this);
 	private ConsoleOutputType type;
@@ -778,7 +815,75 @@ http://msdn.microsoft.com/en-us/library/windows/desktop/ms683193%28v=vs.85%29.as
 
 	int _currentForeground = Color.DEFAULT;
 	int _currentBackground = Color.DEFAULT;
+	RGB _currentForegroundRGB;
+	RGB _currentBackgroundRGB;
 	bool reverseVideo = false;
+
+	/++
+		Attempts to set color according to a 24 bit value (r, g, b, each >= 0 and < 256).
+
+
+		This is not supported on all terminals. It will attempt to fall back to a 256-color
+		or 8-color palette in those cases automatically.
+
+		Returns: true if it believes it was successful (note that it cannot be completely sure),
+		false if it had to use a fallback.
+	+/
+	bool setTrueColor(RGB foreground, RGB background, ForceOption force = ForceOption.automatic) {
+		if(force == ForceOption.neverSend) {
+			_currentForeground = -1;
+			_currentBackground = -1;
+			_currentForegroundRGB = foreground;
+			_currentBackgroundRGB = background;
+			return true;
+		}
+
+		if(force == ForceOption.automatic && _currentForeground == -1 && _currentBackground == -1 && (_currentForegroundRGB == foreground && _currentBackgroundRGB == background))
+			return true;
+
+		_currentForeground = -1;
+		_currentBackground = -1;
+		_currentForegroundRGB = foreground;
+		_currentBackgroundRGB = background;
+
+		version(Windows) {
+			flush();
+			ushort setTob = cast(ushort) approximate16Color(background);
+			ushort setTof = cast(ushort) approximate16Color(foreground);
+			SetConsoleTextAttribute(
+				hConsole,
+				cast(ushort)((setTob << 4) | setTof));
+			return false;
+		} else {
+			// FIXME: if the terminal reliably does support 24 bit color, use it
+			// instead of the round off. But idk how to detect that yet...
+
+			// fallback to 16 color for term that i know don't take it well
+			import std.process;
+			import std.string;
+			if(environment.get("TERM") == "rxvt" || environment.get("TERM") == "linux") {
+				// not likely supported, use 16 color fallback
+				auto setTof = approximate16Color(foreground);
+				auto setTob = approximate16Color(background);
+
+				writeStringRaw(format("\033[%dm\033[3%dm\033[4%dm",
+					(setTof & Bright) ? 1 : 0,
+					cast(int) (setTof & ~Bright),
+					cast(int) (setTob & ~Bright)
+				));
+
+				return false;
+			}
+
+			// otherwise, assume it is probably supported and give it a try
+			writeStringRaw(format("\033[38;5;%dm\033[48;5;%dm",
+				colorToXTermPaletteIndex(foreground),
+				colorToXTermPaletteIndex(background)
+			));
+
+			return true;
+		}
+	}
 
 	/// Changes the current color. See enum Color for the values.
 	void color(int foreground, int background, ForceOption force = ForceOption.automatic, bool reverseVideo = false) {
@@ -1024,7 +1129,7 @@ http://msdn.microsoft.com/en-us/library/windows/desktop/ms683193%28v=vs.85%29.as
 			wstring writeBufferw = to!wstring(writeBuffer);
 			while(writeBufferw.length) {
 				DWORD written;
-				WriteConsoleW(hConsole, writeBufferw.ptr, cast(uint) writeBufferw.length, &written, null);
+				WriteConsoleW(hConsole, writeBufferw.ptr, cast(DWORD)writeBufferw.length, &written, null);
 				writeBufferw = writeBufferw[written .. $];
 			}
 
@@ -1036,9 +1141,9 @@ http://msdn.microsoft.com/en-us/library/windows/desktop/ms683193%28v=vs.85%29.as
 		version(Windows) {
 			CONSOLE_SCREEN_BUFFER_INFO info;
 			GetConsoleScreenBufferInfo( hConsole, &info );
-
+        
 			int cols, rows;
-
+        
 			cols = (info.srWindow.Right - info.srWindow.Left + 1);
 			rows = (info.srWindow.Bottom - info.srWindow.Top + 1);
 
@@ -1112,7 +1217,7 @@ http://msdn.microsoft.com/en-us/library/windows/desktop/ms683193%28v=vs.85%29.as
 
 	/+
 	/// A combined moveTo and writef that puts the cursor back where it was before when it finishes the write.
-	/// Only works in cellular mode.
+	/// Only works in cellular mode. 
 	/// Might give better performance than moveTo/writef because if the data to write matches the internal buffer, it skips sending anything (to override the buffer check, you can use moveTo and writePrintableString with ForceOption.alwaysSend)
 	void writefAt(T...)(int x, int y, string f, T t) {
 		import std.string;
@@ -1516,13 +1621,15 @@ struct RealTimeConsoleInput {
 			FD_ZERO(&fs);
 
 			FD_SET(fdIn, &fs);
-			select(fdIn + 1, &fs, null, null, &tv);
+			if(select(fdIn + 1, &fs, null, null, &tv) == -1) {
+				return false;
+			}
 
 			return FD_ISSET(fdIn, &fs);
 		}
 	}
 
-	private bool anyInput_internal() {
+	/* private */ bool anyInput_internal() {
 		if(inputQueue.length || timedCheckForInput(0))
 			return true;
 		version(Posix)
@@ -2214,10 +2321,11 @@ struct RealTimeConsoleInput {
 
 /// The new style of keyboard event
 struct KeyboardEvent {
-	bool pressed;
-	dchar which;
-	uint modifierState;
+	bool pressed; ///
+	dchar which; ///
+	uint modifierState; ///
 
+	///
 	bool isCharacter() {
 		return !(which >= Key.min && which <= Key.max);
 	}
@@ -2255,6 +2363,7 @@ struct KeyboardEvent {
 
 }
 
+/// Deprecated: use KeyboardEvent instead in new programs
 /// Input event for characters
 struct CharacterEvent {
 	/// .
@@ -2268,6 +2377,7 @@ struct CharacterEvent {
 	uint modifierState; /// Don't depend on this to be available for character events
 }
 
+/// Deprecated: use KeyboardEvent instead in new programs
 struct NonCharacterKeyEvent {
 	/// .
 	enum Type {
@@ -2344,7 +2454,7 @@ struct MouseEvent {
 	uint modifierState; /// shift, ctrl, alt, meta, altgr. Not always available. Always check by using modifierState & ModifierState.something
 }
 
-/// .
+/// When you get this, check terminal.width and terminal.height to see the new size and react accordingly.
 struct SizeChangedEvent {
 	int oldWidth;
 	int oldHeight;
@@ -2390,13 +2500,27 @@ enum ModifierState : uint {
 	windows = 512 // only available if you are using my terminal emulator; it isn't actually offered on standard linux ones
 }
 
-/// GetNextEvent returns this. Check the type, then use get to get the more detailed input
+version(DDoc)
+///
+enum ModifierState : uint {
+	///
+	shift = 4,
+	///
+	alt = 2,
+	///
+	control = 16,
+
+}
+
+/++
+	[RealTimeConsoleInput.nextEvent] returns one of these. Check the type, then use the [InputEvent.get|get] method to get the more detailed information about the event.
+++/
 struct InputEvent {
 	/// .
 	enum Type {
-		KeyboardEvent, ///.
-		CharacterEvent, ///.
-		NonCharacterKeyEvent, /// .
+		KeyboardEvent, /// Keyboard key pressed (or released, where supported)
+		CharacterEvent, /// Do not use this in new programs, use KeyboardEvent instead
+		NonCharacterKeyEvent, /// Do not use this in new programs, use KeyboardEvent instead
 		PasteEvent, /// The user pasted some text. Not always available, the pasted text might come as a series of character events instead.
 		MouseEvent, /// only sent if you subscribed to mouse events
 		SizeChangedEvent, /// only sent if you subscribed to size events
@@ -2415,7 +2539,19 @@ struct InputEvent {
 	/// It may be null in the case of program-generated events;
 	@property Terminal* terminal() { return term; }
 
-	/// .
+	/++
+		Gets the specific event instance. First, check the type (such as in a `switch` statement, then extract the correct one from here. Note that the template argument is a $(B value type of the enum above), not a type argument. So to use it, do $(D event.get!(InputEvent.Type.KeyboardEvent)), for example.
+
+		See_Also:
+
+		The event types:
+			[KeyboardEvent], [MouseEvent], [SizeChangedEvent],
+			[PasteEvent], [UserInterruptionEvent], 
+			[EndOfFileEvent], [HangupEvent], [CustomEvent]
+
+		And associated functions:
+			[RealTimeConsoleInput], [ConsoleInputFlags]
+	++/
 	@property auto get(Type T)() {
 		if(type != T)
 			throw new Exception("Wrong event type");
@@ -2442,7 +2578,7 @@ struct InputEvent {
 		else static assert(0, "Type " ~ T.stringof ~ " not added to the get function");
 	}
 
-	// custom event is public because otherwise there's no point at all
+	/// custom event is public because otherwise there's no point at all
 	this(CustomEvent c, Terminal* p = null) {
 		t = Type.CustomEvent;
 		customEvent = c;
@@ -2505,6 +2641,7 @@ struct InputEvent {
 }
 
 version(Demo)
+/// View the source of this!
 void main() {
 	auto terminal = Terminal(ConsoleOutputType.cellular);
 
@@ -3110,7 +3247,7 @@ class LineGetter {
 				/* Insert the character (unless it is backspace, tab, or some other control char) */
 				auto ch = ev.which;
 				switch(ch) {
-					case 4: // ctrl+d will also send a newline-equivalent
+					case 4: // ctrl+d will also send a newline-equivalent 
 					case '\r':
 					case '\n':
 						justHitTab = false;
@@ -3351,6 +3488,9 @@ version(Windows) {
 
 
 struct ScrollbackBuffer {
+
+	bool demandsAttention;
+
 	this(string name) {
 		this.name = name;
 	}
@@ -3422,13 +3562,48 @@ struct ScrollbackBuffer {
 			scrollbackPosition = 0;
 	}
 
+	void scrollToBottom() {
+		scrollbackPosition = 0;
+	}
+
+	// this needs width and height to know how to word wrap it
+	void scrollToTop(int width, int height) {
+		scrollbackPosition = scrollTopPosition(width, height);
+	}
+
+
 
 
 	struct LineComponent {
 		string text;
-		int color = Color.DEFAULT;
-		int background = Color.DEFAULT;
+		bool isRgb;
+		union {
+			int color;
+			RGB colorRgb;
+		}
+		union {
+			int background;
+			RGB backgroundRgb;
+		}
 		bool delegate() onclick; // return true if you need to redraw
+
+		// 16 color ctor
+		this(string text, int color = Color.DEFAULT, int background = Color.DEFAULT, bool delegate() onclick = null) {
+			this.text = text;
+			this.color = color;
+			this.background = background;
+			this.onclick = onclick;
+			this.isRgb = false;
+		}
+
+		// true color ctor
+		this(string text, RGB colorRgb, RGB backgroundRgb = RGB(0, 0, 0), bool delegate() onclick = null) {
+			this.text = text;
+			this.colorRgb = colorRgb;
+			this.backgroundRgb = backgroundRgb;
+			this.onclick = onclick;
+			this.isRgb = true;
+		}
 	}
 
 	struct Line {
@@ -3449,6 +3624,34 @@ struct ScrollbackBuffer {
 	int x, y, width, height;
 
 	int scrollbackPosition;
+
+
+	int scrollTopPosition(int width, int height) {
+		int lineCount;
+
+		foreach_reverse(line; lines) {
+			int written = 0;
+			comp_loop: foreach(cidx, component; line.components) {
+				auto towrite = component.text;
+				foreach(idx, dchar ch; towrite) {
+					if(written >= width) {
+						lineCount++;
+						written = 0;
+					}
+
+					if(ch == '\t')
+						written += 8; // FIXME
+					else
+						written++;
+				}
+			}
+			lineCount++;
+		}
+
+		//if(lineCount > height)
+			return lineCount - height;
+		//return 0;
+	}
 
 	void drawInto(Terminal* terminal, in int x = 0, in int y = 0, int width = 0, int height = 0) {
 		if(lines.length == 0)
@@ -3552,7 +3755,7 @@ struct ScrollbackBuffer {
 				linePos++;
 				continue;
 			}
-
+		
 			terminal.moveTo(x, y + ((linePos >= 0) ? linePos : 0));
 
 			auto todo = line.components;
@@ -3562,7 +3765,10 @@ struct ScrollbackBuffer {
 			}
 
 			foreach(ref component; todo) {
-				terminal.color(component.color, component.background);
+				if(component.isRgb)
+					terminal.setTrueColor(component.colorRgb, component.backgroundRgb);
+				else
+					terminal.color(component.color, component.background);
 				auto towrite = component.text;
 
 				again:
@@ -3640,6 +3846,8 @@ struct ScrollbackBuffer {
 			case InputEvent.Type.KeyboardEvent:
 				auto ev = e.keyboardEvent;
 
+				demandsAttention = false;
+
 				switch(ev.which) {
 					case KeyboardEvent.Key.UpArrow:
 						scrollUp();
@@ -3660,6 +3868,7 @@ struct ScrollbackBuffer {
 			case InputEvent.Type.MouseEvent:
 				auto ev = e.mouseEvent;
 				if(ev.x >= x && ev.x < x + width && ev.y >= y && ev.y < y + height) {
+					demandsAttention = false;
 					// it is inside our box, so do something with it
 					auto mx = ev.x - x;
 					auto my = ev.y - y;
@@ -3824,3 +4033,123 @@ void main() {
 		Thread.sleep(50.msecs);
 	}
 }
+
+/*
+	The Xterm palette progression is:
+	[0, 95, 135, 175, 215, 255]
+
+	So if I take the color and subtract 55, then div 40, I get
+	it into one of these areas. If I add 20, I get a reasonable
+	rounding.
+*/
+
+ubyte colorToXTermPaletteIndex(RGB color) {
+	/*
+		Here, I will round off to the color ramp or the
+		greyscale. I will NOT use the bottom 16 colors because
+		there's duplicates (or very close enough) to them in here
+	*/
+
+	if(color.r == color.g && color.g == color.b) {
+		// grey - find one of them:
+		if(color.r == 0) return 0;
+		// meh don't need those two, let's simplify branche
+		//if(color.r == 0xc0) return 7;
+		//if(color.r == 0x80) return 8;
+		// it isn't == 255 because it wants to catch anything
+		// that would wrap the simple algorithm below back to 0.
+		if(color.r >= 248) return 15;
+
+		// there's greys in the color ramp too, but these
+		// are all close enough as-is, no need to complicate
+		// algorithm for approximation anyway
+
+		return cast(ubyte) (232 + ((color.r - 8) / 10));
+	}
+
+	// if it isn't grey, it is color
+
+	// the ramp goes blue, green, red, with 6 of each,
+	// so just multiplying will give something good enough
+
+	// will give something between 0 and 5, with some rounding
+	auto r = (cast(int) color.r - 35) / 40;
+	auto g = (cast(int) color.g - 35) / 40;
+	auto b = (cast(int) color.b - 35) / 40;
+
+	return cast(ubyte) (16 + b + g*6 + r*36);
+}
+
+/++
+	Represents a 24-bit color.
+
+
+	$(TIP You can convert these to and from [arsd.color.Color] using
+	      `.tupleof`:
+
+		---
+	      	RGB rgb;
+		Color c = Color(rgb.tupleof);
+		---
+	)
++/
+struct RGB {
+	ubyte r; ///
+	ubyte g; ///
+	ubyte b; ///
+	// terminal can't actually use this but I want the value
+	// there for assignment to an arsd.color.Color
+	private ubyte a = 255;
+}
+
+// This is an approximation too for a few entries, but a very close one.
+RGB xtermPaletteIndexToColor(int paletteIdx) {
+	RGB color;
+
+	if(paletteIdx < 16) {
+		if(paletteIdx == 7)
+			return RGB(0xc0, 0xc0, 0xc0);
+		else if(paletteIdx == 8)
+			return RGB(0x80, 0x80, 0x80);
+
+		color.r = (paletteIdx & 0b001) ? ((paletteIdx & 0b1000) ? 0xff : 0x80) : 0x00;
+		color.g = (paletteIdx & 0b010) ? ((paletteIdx & 0b1000) ? 0xff : 0x80) : 0x00;
+		color.b = (paletteIdx & 0b100) ? ((paletteIdx & 0b1000) ? 0xff : 0x80) : 0x00;
+
+	} else if(paletteIdx < 232) {
+		// color ramp, 6x6x6 cube
+		color.r = cast(ubyte) ((paletteIdx - 16) / 36 * 40 + 55);
+		color.g = cast(ubyte) (((paletteIdx - 16) % 36) / 6 * 40 + 55);
+		color.b = cast(ubyte) ((paletteIdx - 16) % 6 * 40 + 55);
+
+		if(color.r == 55) color.r = 0;
+		if(color.g == 55) color.g = 0;
+		if(color.b == 55) color.b = 0;
+	} else {
+		// greyscale ramp, from 0x8 to 0xee
+		color.r = cast(ubyte) (8 + (paletteIdx - 232) * 10);
+		color.g = color.r;
+		color.b = color.g;
+	}
+
+	return color;
+}
+
+int approximate16Color(RGB color) {
+	int c;
+	c |= color.r > 64 ? RED_BIT : 0;
+	c |= color.g > 64 ? GREEN_BIT : 0;
+	c |= color.b > 64 ? BLUE_BIT : 0;
+
+	c |= (((color.r + color.g + color.b) / 3) > 80) ? Bright : 0;
+
+	return c;
+}
+
+/*
+void main() {
+	auto terminal = Terminal(ConsoleOutputType.linear);
+	terminal.setTrueColor(RGB(255, 0, 255), RGB(255, 255, 255));
+	terminal.writeln("Hello, world!");
+}
+*/
