@@ -1203,8 +1203,8 @@ void clearScreen()
     auto size = size;
     short length = cast(short)(size.x * size.y); // Number of all characters to write
     setCursorPos(0, 0);
-
-    write( std.array.replicate(" ", length));
+    import std.array : replicate;
+    write( replicate(" ", length));
     stdout.flush();
 }
 
